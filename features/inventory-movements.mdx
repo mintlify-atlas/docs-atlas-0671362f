@@ -1,7 +1,7 @@
 ---
 title: "Inventory Movements: Full Audit Trail for Every Tank"
 sidebarTitle: "Inventory Movements"
-description: "OxygenDispatch records every tank action — intake, transfer, dispatch, and status change — as an inventory movement with timestamp, user, and reference document."
+description: "OxygenDispatch records every tank action — intake, transfer, dispatch, and status change — as an inventory movement with timestamp, user, and document."
 ---
 
 Every action performed on a tank unit in OxygenDispatch — from the moment it enters the facility as part of a batch to the moment it is dispatched or decommissioned — is recorded as an immutable inventory movement. These records are never edited or deleted. Together they form a complete, time-ordered audit trail that answers the questions: *where was this cylinder, who moved it, and when?* The movement log is accessible both system-wide and per individual tank.
@@ -20,7 +20,7 @@ The following query string filters are supported:
 
 Example — list all outgoing dispatch movements involving a specific warehouse area:
 
-```
+```http
 GET /inventory/movements?type=3&area_id=4
 ```
 
@@ -84,16 +84,16 @@ Movements are created automatically by the application whenever a qualifying act
 | Tank generated from a batch | `ENTRADA` (1) | `from_area_id = null`, `to_area_id = Recepción`, `reference_document = batch.document_number`, notes include the batch number and cylinder expiry date |
 | Tank transferred between areas | `TRASLADO` (2) | `from_area_id` = previous area, `to_area_id` = new area |
 | Tank dispatched to a customer | `SALIDA` (3) | `from_area_id` = area at time of dispatch, `to_area_id = null`, `reference_document` = dispatch order `document_number` |
-| Technical status changed manually | `CAMBIO_ESTADO_TECNICO` (4) | Notes describe the old → new status |
-| Tank approved during technical review | `CAMBIO_ESTADO_TECNICO` (4) | `from_area_id = Recepción`, `to_area_id = Productos aprobados` |
-| Tank rejected during technical review | `CAMBIO_ESTADO_TECNICO` (4) | `to_area_id = Rechazos/devoluciones` |
+| Technical status changed manually | `CAMBIO_ESTADO_TECNICO` (4) | `from_area_id` and `to_area_id` are `null`; `notes` contains the optional user-supplied text as-is |
+| Tank approved during technical review | `CAMBIO_ESTADO_TECNICO` (4) | `from_area_id` = tank's current area at review time, `to_area_id = Productos aprobados`; notes record the previous → new technical status |
+| Tank rejected during technical review | `CAMBIO_ESTADO_TECNICO` (4) | `from_area_id` = tank's current area at review time, `to_area_id = Rechazos, devoluciones y retiro del mercado`; notes record anomaly type and observation |
 | Tank decommissioned | `CAMBIO_ESTADO_TECNICO` (4) | Notes always prefixed with `[BAJA]`; tank `status` set to `BAJA` |
 
 ### ENTRADA notes format
 
 When tanks are generated via `POST /batches/{batch}/generate-tanks`, each tank's ENTRADA movement is created with a structured note:
 
-```
+```text
 Ingreso inicial desde lote LOTE-2026-001. Tanque pendiente de revisión técnica. Vencimiento: 31/12/2028.
 ```
 
@@ -103,7 +103,7 @@ The date in the notes is formatted as `dd/mm/YYYY` using `Carbon`.
 
 When a tank is decommissioned via `POST /tanks/{tank}/decommission`, the notes field is always structured as:
 
-```
+```text
 [BAJA] <optional user-supplied notes>
 ```
 

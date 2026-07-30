@@ -1,7 +1,7 @@
 ---
-title: "Application Configuration: Laravel Settings for OxygenDispatch"
+title: "OxygenDispatch Configuration Reference"
 sidebarTitle: "Configuration"
-description: "Configuration reference for OxygenDispatch — application settings, database connection, queue driver, file storage, and PDF generation configuration."
+description: "Configuration reference for OxygenDispatch — application settings, database connection, queue driver, file storage, and PDF generation."
 ---
 
 OxygenDispatch is built on Laravel 12 and follows the framework's standard configuration model: every setting lives in a PHP file under the `config/` directory, and each value is driven by an environment variable read at runtime via `env()`. You set those variables in the `.env` file at the project root. This page documents every configuration area you need to understand before deploying or customising OxygenDispatch.
@@ -52,7 +52,7 @@ DB_PASSWORD=secret
 For MySQL the charset defaults to `utf8mb4` with the `utf8mb4_unicode_ci` collation, which correctly handles Spanish accented characters in cylinder and patient records.
 
 <Tip>
-When using SQLite locally, the `composer setup` script automatically creates `database/database.sqlite` via `touch`. You do not need to create the file manually.
+When using SQLite locally, `php artisan migrate` will automatically target `database/database.sqlite`. The `composer setup` script runs `migrate --force` after copying `.env.example` to `.env` and generating the application key, so the file is created by SQLite itself on first connection.
 </Tip>
 
 ---
@@ -61,11 +61,14 @@ When using SQLite locally, the `composer setup` script automatically creates `da
 
 OxygenDispatch relies on Laravel's queue system for background work. The default connection is `database`, meaning jobs are stored in the `jobs` table — no external broker is required.
 
-The `composer dev` script starts a queue worker automatically alongside the development server:
+The `composer dev` script starts a queue worker automatically alongside three other concurrent processes — the PHP development server, Pail log viewer, and Vite dev server:
 
 ```bash
-# What composer dev runs under the hood (among other processes)
+# What composer dev runs (all four processes concurrently)
+php artisan serve
 php artisan queue:listen --tries=1 --timeout=0
+php artisan pail --timeout=0
+npm run dev
 ```
 
 For production, use a proper supervisor such as [Laravel Horizon](https://laravel.com/docs/horizon) or a `supervisord` config so the worker restarts on failure.
@@ -161,10 +164,11 @@ laravel({
 
 **Tailwind content sources** (`tailwind.config.js`) — Vite scans these paths for class names to include in the production CSS bundle:
 
-- `resources/views/**/*.blade.php`
-- `resources/js/**/*.js` / `**/*.ts`
-- `resources/**/*.vue`
-- Laravel's built-in pagination views
+- `./vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php`
+- `./storage/framework/views/*.php`
+- `./resources/views/**/*.blade.php`
+- `./resources/js/**/*.js` / `**/*.ts`
+- `./resources/**/*.vue`
 
 **PostCSS plugins** (`postcss.config.js`): `tailwindcss` and `autoprefixer`.
 
@@ -212,6 +216,6 @@ composer test
 This is equivalent to:
 
 ```bash
-php artisan config:clear
+php artisan config:clear --ansi
 php artisan test
 ```

@@ -1,7 +1,7 @@
 ---
-title: "Tank Technical Reviews: Approve or Reject Individual Cylinders"
+title: "Tank Technical Reviews: Per-Cylinder Approval Workflow"
 sidebarTitle: "Tank Reviews"
-description: "Per-tank technical review workflow in OxygenDispatch. Approve or reject individual cylinders linked to a technical reception, with anomaly tracking and bulk approval support."
+description: "Per-tank review workflow in OxygenDispatch: approve or reject cylinders, record anomalies, and bulk-approve all pending units in one operation."
 ---
 
 While a [Technical Reception](/features/technical-receptions) captures the shipment-level compliance checklist, a **tank technical review** is the per-unit decision that determines whether each individual cylinder is cleared for active inventory or quarantined for return. Every cylinder that arrived under a given document number must pass through this step before it can be dispatched to a patient or facility. Reviews are always performed in the context of the parent `TechnicalReception` record, ensuring a clear audit trail linking each cylinder's outcome back to the formal reception form.

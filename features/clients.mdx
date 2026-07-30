@@ -1,7 +1,7 @@
 ---
 title: "Client Management: Register and Look Up Dispatch Recipients"
 sidebarTitle: "Clients"
-description: "Manage clients in OxygenDispatch with entity type classification for Entidad, Intradomiciliario IESS, and No afiliado/Apoyo. Look up clients by document number for fast dispatch creation."
+description: "Register clients with Entidad, Intradomiciliario IESS, or No afiliado/Apoyo classification. Use document lookup to auto-fill client data on dispatch forms."
 ---
 
 Clients in OxygenDispatch represent the hospitals, home-care programmes, and unaffiliated recipients who receive medical gas cylinders. Each client record holds contact and identity information alongside an **entity type** that classifies the recipient for reporting purposes. A dedicated document-lookup endpoint lets the dispatch creation form auto-fill client details from a single document number, reducing data-entry errors during high-volume dispatch sessions.
@@ -137,5 +137,5 @@ Only the `id`, `name`, and `document` fields are returned; the dispatch form use
 ---
 
 <Note>
-  Dispatches can be created without specifying a client — `client_id` is nullable on the `dispatches` table. When no client is linked, the dispatch's `entity_type` is set to `NO_AFILIADO_APOYO` (3) because the client object resolves to `null` and `null?->entity_type?->value` returns `null`, which the controller leaves unset; the column default handles the fallback at the application level. This allows ad-hoc or emergency dispatches to be recorded immediately and attributed to a client retrospectively if needed.
+  Dispatches can be created without specifying a client — `client_id` is nullable on the `dispatches` table. When no client is linked, the controller evaluates `$client?->entity_type?->value`, which resolves to `null`, so `dispatches.entity_type` is stored as `NULL`. This allows ad-hoc or emergency dispatches to be recorded immediately and attributed to a client retrospectively if needed.
 </Note>

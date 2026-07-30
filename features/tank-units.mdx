@@ -19,7 +19,7 @@ The following fields are stored on every tank unit record:
 | `id` | UUID | Primary key. Globally unique identifier for this cylinder. |
 | `serial` | string | Full serial string, e.g. `OXI-000042`. Unique across the entire system. |
 | `serial_prefix` | string | The alphabetic/numeric prefix portion, e.g. `OXI`. |
-| `serial_number` | integer | The numeric counter portion used for ordering within a prefix. |
+| `serial_number` | bigInteger | The numeric counter portion used for ordering within a prefix. Stored as `unsignedBigInteger` in the database. |
 | `batch_id` | integer | Foreign key to the `batches` table. |
 | `product_id` | integer | Foreign key to `catalog_products`. |
 | `gas_type_id` | integer | Inherited from the product at generation time. |
@@ -50,7 +50,7 @@ Apply any combination of the following query string filters:
 
 Example — find all available tanks in the approved products area for a specific gas type:
 
-```
+```http
 GET /tanks?status=1&gas_type_id=2&warehouse_area_id=5
 ```
 

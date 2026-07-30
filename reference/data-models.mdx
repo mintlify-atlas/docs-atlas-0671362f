@@ -1,7 +1,7 @@
 ---
 title: "Data Models: Eloquent Models and Their Relationships"
 sidebarTitle: "Data Models"
-description: "Complete reference for OxygenDispatch Eloquent models — fields, relationships, casts, and key methods for Batch, TankUnit, Dispatch, TechnicalReception, and all supporting models."
+description: "Complete reference for OxygenDispatch Eloquent models — fillable fields, casts, relationships, and key methods for every model in the system."
 ---
 
 OxygenDispatch is built on a set of Eloquent models that map closely to the physical and operational reality of medical gas cylinder management. The core lifecycle runs from a **Batch** (a shipment of cylinders) through individual **TankUnit** records (one per physical cylinder), across **Dispatch** and **DispatchLine** records (outbound deliveries to clients), and back through **TechnicalReception** and **TankTechnicalReview** records (incoming quality control). Supporting catalog models — `GasType`, `CylinderCapacity`, `WarehouseArea`, `TechnicalStatus`, and `CatalogProduct` — act as lookup tables that classify and locate every cylinder at all times. All models live under the `App\Models` namespace.
@@ -129,7 +129,7 @@ if ($tank->isAvailableForDispatch()) {
 
 `scopeDispatchable(Builder $query): Builder`
 
-Query scope that applies the same three conditions as `isAvailableForDispatch()` at the database level, producing an efficient single query. Use this when building dispatch selection lists.
+Query scope that filters tank units at the database level to only those eligible for dispatch. It constrains three conditions in a single query: `status` equals `TankStatus::DISPONIBLE`, the related `technicalStatus.name` equals `'Aprobado'` (exact match via `whereHas`), and the related `warehouseArea.name` equals `'Productos aprobados'` (exact match via `whereHas`). Use this scope when building dispatch selection lists to avoid N+1 loads.
 
 ```php
 $tanks = TankUnit::dispatchable()->get();

@@ -1,7 +1,7 @@
 ---
-title: "Technical Receptions: Compliance Checklist for Incoming Batches"
+title: "Technical Receptions: Incoming Batch Compliance Checklist"
 sidebarTitle: "Technical Receptions"
-description: "Create and manage technical reception forms in OxygenDispatch. Each form covers a 30-item compliance checklist across documentary, certificate, and physical inspection sections."
+description: "Manage technical reception forms in OxygenDispatch, with a 30-item compliance checklist across documentary, certificate, and physical sections."
 ---
 
 A **technical reception** (*ficha técnica de recepción*) is the formal quality-control record that must accompany every incoming shipment of medical gas cylinders. Peruvian medical-device regulations require that each batch delivery be inspected and documented before cylinders can be placed into active inventory. In OxygenDispatch, one technical reception covers every batch that shares the same `document_number` — the delivery note or purchase-order number printed on the supplier's paperwork — giving quality teams a single, auditable checklist per shipment regardless of how many individual batches or cylinders arrived under that order.
@@ -50,12 +50,12 @@ The reception aggregates header metadata (supplier, dates, responsible personnel
   Full name of the warehouse staff member who accepted delivery. Max 200 characters. Pre-populated with the authenticated user's name.
 </ParamField>
 
-<ParamField body="storage_conditions" type="text">
+<ParamField body="storage_conditions" type="string">
   Free-text description of the storage conditions under which the shipment arrived or must be held.
 </ParamField>
 
 <ParamField body="quantity_received" type="integer">
-  Total number of individual cylinder units received. Must be `≥ 0`. Auto-calculated from the count of `TankUnit` records linked to the matching batches.
+  Total number of individual cylinder units received. Must be `≥ 0`. Pre-populated from the count of `TankUnit` records linked to the matching batches; can be adjusted manually before saving.
 </ParamField>
 
 <ParamField body="documentation_complies" type="boolean">
@@ -80,7 +80,7 @@ The reception aggregates header metadata (supplier, dates, responsible personnel
   Job title or role of the responsible person (e.g. *Responsable Técnico*). Max 200 characters.
 </ParamField>
 
-<ParamField body="responsible_observation" type="text">
+<ParamField body="responsible_observation" type="string">
   Free-text observations or notes from the responsible person.
 </ParamField>
 

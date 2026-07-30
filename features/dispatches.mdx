@@ -1,7 +1,7 @@
 ---
-title: "Dispatches: Send Approved Cylinders to Clients"
+title: "Dispatches: Record and Manage Outbound Cylinder Deliveries"
 sidebarTitle: "Dispatches"
-description: "Create dispatches in OxygenDispatch by selecting individual cylinder serials or by specifying a quantity. Dispatches auto-generate document numbers from batch data."
+description: "Record cylinder dispatches by serial selection or FIFO quantity. OxygenDispatch auto-assigns tanks and derives document numbers from source batch data."
 ---
 
 A **dispatch** records the outbound movement of one or more medical gas cylinders to a client. Each dispatch captures who received the cylinders, when they left, supporting voucher and remission references, and an automatically computed document number derived from the source batch data. Every dispatched tank is locked from further allocation, and a corresponding `SALIDA` inventory movement is written to the audit trail — all within a single database transaction.
@@ -49,7 +49,7 @@ OxygenDispatch provides two ways to create a dispatch: hand-picking specific cyl
     ### Form fields
 
     <ParamField body="client_id" type="integer" optional>
-      ID of the client receiving the cylinders. Must exist in the `clients` table. Leave blank to create a client-less dispatch — `entity_type` will default to `NO_AFILIADO_APOYO` (3).
+      ID of the client receiving the cylinders. Must exist in the `clients` table. Leave blank to create a client-less dispatch — `dispatches.entity_type` will be stored as `NULL`.
     </ParamField>
 
     <ParamField body="dispatched_at" type="date" required>
@@ -80,8 +80,8 @@ OxygenDispatch provides two ways to create a dispatch: hand-picking specific cyl
       Free-text observations. No length limit enforced at the application layer.
     </ParamField>
 
-    <ParamField body="tank_ids[]" type="array of UUIDs" required>
-      One or more UUID strings identifying the `tank_units` to dispatch. The array must contain at least one element. Duplicate IDs are deduplicated automatically before processing.
+    <ParamField body="tank_ids[]" type="array of strings" required>
+      One or more string IDs identifying the `tank_units` to dispatch. The array must contain at least one element. Each ID must exist in the `tank_units` table. Duplicate IDs are deduplicated automatically before processing.
     </ParamField>
   </Tab>
 
@@ -234,5 +234,11 @@ $dispatch->load([
 ---
 
 <Warning>
-  Only tanks whose `status` equals `DISPONIBLE` (value `1`) can be dispatched. If any selected tank has a different status at the moment the transaction executes — for example because it was reserved by a concurrent request — `DispatchService` throws a `RuntimeException` with the offending serial number, the transaction is rolled back in full, and **no** cylinders are dispatched. Always confirm tank availability before submitting the form.
+  Only tanks whose `status` equals `DISPONIBLE` (value `1`) can be dispatched.
+
+  **Serial-selection dispatch** — if any selected tank has a different status at the moment the transaction executes (for example, because it was claimed by a concurrent request), `DispatchService` throws a `RuntimeException` naming the offending serial, the transaction is rolled back in full, and **no** cylinders are dispatched.
+
+  **By-quantity dispatch** — if the filtered stock cannot satisfy the requested quantity, `DispatchService` throws a `RuntimeException` reporting how many tanks are available versus how many were requested, and the transaction is rolled back in full with no cylinders dispatched and no record created.
+
+  Always confirm tank availability before submitting the form.
 </Warning>

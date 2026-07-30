@@ -1,7 +1,7 @@
 ---
-title: "Get started with OxygenDispatch in 5 minutes"
+title: "Get started with OxygenDispatch locally in 5 minutes"
 sidebarTitle: "Quickstart"
-description: "Clone, configure, and run OxygenDispatch locally. Follow this guide to register your first batch and dispatch oxygen cylinders."
+description: "Clone, configure, and run OxygenDispatch locally. Register a batch, complete a technical reception, and dispatch your first cylinders."
 ---
 
 This guide walks you through getting a fully functional local instance of OxygenDispatch running on your machine and completing the end-to-end workflow — from registering a catalog entry and creating a batch all the way to dispatching approved cylinders to a client. The entire process takes about five minutes on a machine that already has PHP and Node installed.
@@ -147,7 +147,7 @@ Once the application is running and you have logged in, follow these steps to re
 </Steps>
 
 <Tip>
-  Want to skip the manual setup steps? The `composer.json` defines a `setup` script that chains the entire installation sequence in one command: `composer install`, copy `.env.example`, `php artisan key:generate`, `php artisan migrate --force`, `npm install`, and `npm run build`. Just run:
+  Want to skip the manual setup steps? The `composer.json` defines a `setup` script that chains the entire installation sequence in one command: `composer install`, copy `.env.example` to `.env` (only if `.env` does not already exist), `php artisan key:generate`, `php artisan migrate --force`, `npm install`, and `npm run build`. Just run:
 
   ```bash
   composer setup

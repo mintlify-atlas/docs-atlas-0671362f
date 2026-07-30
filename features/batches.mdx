@@ -1,7 +1,7 @@
 ---
 title: "Batch Management: Register and Track Cylinder Shipments"
 sidebarTitle: "Batches"
-description: "Create and manage incoming shipment batches in OxygenDispatch. Each batch holds supplier info, voucher data, and generates serialized tank units automatically."
+description: "Create and manage incoming shipment batches in OxygenDispatch. Each batch captures supplier details, voucher data, and generates serialized tank units."
 ---
 
 Batches are the entry point for all medical gas cylinders in OxygenDispatch. When a supplier delivers a shipment of cylinders, you create a batch to record the event — capturing the supplier identity, voucher documents, sanitary data, and the date cylinders were received. All individual tank units in the system trace back to the batch they arrived in, making batches the root of the full inventory audit trail.
@@ -22,6 +22,7 @@ A batch represents a single supplier shipment. It is the parent record for every
 | `received_at` | The date and time the batch was physically received |
 | `sanitary_registry` | A reference sanitary registry code for this shipment |
 | `manufactured_at` | The manufacture date recorded on the delivery |
+| `notes` | Free-text notes about this shipment (no length limit) |
 | `expires_at` | The expiry date recorded at the batch level |
 
 A batch may optionally reference a `gas_type` and a `capacity` as referential catalog links. Actual gas type and capacity on individual cylinders are determined by the **product** selected when generating tanks.
@@ -44,6 +45,10 @@ Submit a `POST /batches` request using the form fields below. All nullable field
 
 <ParamField body="capacity_id" type="integer">
   Optional reference to a cylinder capacity catalog entry (`cylinder_capacities.id`).
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Free-text notes about this shipment — inspection observations, delivery conditions, or any other contextual information. No maximum length enforced.
 </ParamField>
 
 <ParamField body="document_number" type="string">
@@ -108,7 +113,7 @@ Once a batch is created, you can generate the individual cylinder records that b
 
 Each generated tank receives a serial number composed of the prefix and a zero-padded 6-digit counter, separated by a hyphen:
 
-```
+```text
 PREFIX-000001
 PREFIX-000002
 PREFIX-000003
@@ -116,7 +121,7 @@ PREFIX-000003
 
 For example, with the default prefix `OXI`:
 
-```
+```text
 OXI-000001
 OXI-000002
 OXI-000003
@@ -151,7 +156,7 @@ The batch list at `GET /batches` supports the following query string parameters 
 
 Example:
 
-```
+```http
 GET /batches?q=LOTE-2026&gas_type_id=1
 ```
 

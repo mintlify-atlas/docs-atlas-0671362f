@@ -68,6 +68,7 @@ The exits summary aggregates all `Dispatch` records whose `dispatched_at` timest
 | `total_tanks` | integer | Total tank units dispatched across all dispatch lines |
 | `total_m3` | float | Total cubic metres dispatched, derived from each tank's `CylinderCapacity.m3` |
 | `total_clients` | integer | Count of distinct clients served in the period |
+| `filter_label` | string | Human-readable label describing the active entity type filter, or `"General"` when no filter is applied |
 | `by_entity_type` | array | Volume breakdown by `EntityType` — see below |
 | `expiration` | object | Same expiration health snapshot structure as entries (valid / warning / expired / without_date) |
 

@@ -1,7 +1,7 @@
 ---
 title: "Database Schema: Tables, Columns, and Relationships"
 sidebarTitle: "Database Schema"
-description: "Complete database schema reference for OxygenDispatch — all tables, columns with types and constraints, and foreign key relationships derived from the migration files."
+description: "Full database schema for OxygenDispatch — every table, column type, constraint, and foreign key relationship derived from the Laravel migration files."
 ---
 
 OxygenDispatch uses a relational MySQL/MariaDB schema managed entirely through Laravel migrations. The schema is structured around a central `tank_units` table (one row per physical cylinder), radiating outward to procurement records (`batches`, `technical_receptions`), logistics records (`inventory_movements`, `dispatches`, `dispatch_lines`), and a set of lookup/catalog tables (`gas_types`, `cylinder_capacities`, `warehouse_areas`, `technical_statuses`, `catalog_products`). The sections below document every table in the final migrated state — that is, including all `ALTER TABLE` changes applied by subsequent migration files.
@@ -131,16 +131,16 @@ Records an incoming shipment of cylinders from a supplier. `gas_type_id` and `ca
 
 <Accordion title="tank_units">
 
-The central table — one row per physical cylinder. Uses a UUID primary key. `product_id`, `serial_prefix`, `serial_number`, and `updated_at` were added by subsequent migrations.
+The central table — one row per physical cylinder. Uses a UUID primary key. `product_id` was added after `batch_id` in migration `2026_02_08_200742`; `serial_prefix` and `serial_number` were added after `product_id` in migration `2026_02_08_204831`; `updated_at` was added in migration `2026_02_08_214456`.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | `uuid` (char 36) | PK | Auto-generated UUID |
 | `serial` | `varchar(120)` | NOT NULL, UNIQUE | Full serial string |
-| `serial_prefix` | `varchar(10)` | nullable | Alphabetic prefix of the serial |
-| `serial_number` | `bigint unsigned` | nullable | Numeric portion of the serial |
 | `batch_id` | `bigint unsigned` | NOT NULL, FK → `batches.id` CASCADE DELETE | |
-| `product_id` | `bigint unsigned` | nullable, FK → `catalog_products.id` | |
+| `product_id` | `bigint unsigned` | nullable, FK → `catalog_products.id` | Added by migration `2026_02_08_200742` |
+| `serial_prefix` | `varchar(10)` | nullable | Alphabetic prefix of the serial; added by migration `2026_02_08_204831` |
+| `serial_number` | `bigint unsigned` | nullable | Numeric portion of the serial; added by migration `2026_02_08_204831` |
 | `gas_type_id` | `bigint unsigned` | NOT NULL, FK → `gas_types.id` | |
 | `capacity_id` | `bigint unsigned` | NOT NULL, FK → `cylinder_capacities.id` | |
 | `warehouse_area_id` | `bigint unsigned` | NOT NULL, FK → `warehouse_areas.id` | |
@@ -149,9 +149,9 @@ The central table — one row per physical cylinder. Uses a UUID primary key. `p
 | `manufactured_at` | `date` | nullable | |
 | `expires_at` | `date` | nullable | |
 | `status` | `tinyint unsigned` | NOT NULL, default `1` | Maps to `TankStatus` enum (1 = DISPONIBLE) |
-| `dispatched_at` | `datetime` | nullable | Set when status changes to DESPACHADO |
 | `created_at` | `datetime` | nullable | |
-| `updated_at` | `timestamp` | nullable | |
+| `dispatched_at` | `datetime` | nullable | Set when status changes to DESPACHADO |
+| `updated_at` | `timestamp` | nullable | Added by migration `2026_02_08_214456` |
 
 </Accordion>
 

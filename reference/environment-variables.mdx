@@ -1,7 +1,7 @@
 ---
-title: "Environment Variables Reference for OxygenDispatch"
+title: "OxygenDispatch Environment Variables Reference"
 sidebarTitle: "Environment Variables"
-description: "All environment variables used by OxygenDispatch — application, database, session, queue, mail, and storage settings with required/optional status and default values."
+description: "All environment variables used by OxygenDispatch — application, database, session, queue, mail, and storage settings with defaults and required status."
 ---
 
 Every configurable aspect of OxygenDispatch is driven by environment variables read from the `.env` file at the project root. Laravel never reads `.env` in production from a committed file — instead, set these variables through your hosting platform's environment dashboard, a secrets manager, or a deployment pipeline. To bootstrap a new local environment, copy `.env.example` to `.env` and then fill in the values described below.
@@ -97,7 +97,7 @@ Mail is not required for core inventory and dispatch workflows. The default mail
 | `MAIL_PASSWORD` | SMTP only | _(none)_ | SMTP authentication password. |
 | `MAIL_SCHEME` | No | _(none)_ | Explicit transport scheme for SMTP: `tls` or `ssl`. |
 | `MAIL_FROM_ADDRESS` | No | `hello@example.com` | The "From" address on all outgoing mail. |
-| `MAIL_FROM_NAME` | No | `APP_NAME` | The "From" display name on all outgoing mail. |
+| `MAIL_FROM_NAME` | No | `Example` | The "From" display name on all outgoing mail. |
 
 ---
 
