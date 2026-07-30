@@ -1,0 +1,167 @@
+---
+title: "Tank Technical Reviews: Approve or Reject Individual Cylinders"
+sidebarTitle: "Tank Reviews"
+description: "Per-tank technical review workflow in OxygenDispatch. Approve or reject individual cylinders linked to a technical reception, with anomaly tracking and bulk approval support."
+---
+
+While a [Technical Reception](/features/technical-receptions) captures the shipment-level compliance checklist, a **tank technical review** is the per-unit decision that determines whether each individual cylinder is cleared for active inventory or quarantined for return. Every cylinder that arrived under a given document number must pass through this step before it can be dispatched to a patient or facility. Reviews are always performed in the context of the parent `TechnicalReception` record, ensuring a clear audit trail linking each cylinder's outcome back to the formal reception form.
+
+---
+
+## Overview
+
+Tank reviews are accessed at:
+
+```
+GET /technical-receptions/{technicalReception}/tank-reviews
+```
+
+The page displays all `TankUnit` records whose associated batch shares the same `document_number` as the reception — not just tanks from a single batch, but every cylinder that arrived under that order. Alongside the paginated tank list (50 per page, ordered by serial number), the view exposes a live **summary** of the review state:
+
+| Key | Description |
+|---|---|
+| `total` | Total number of tank units under this document number |
+| `pending` | Units with `technical_status = Pendiente` |
+| `approved` | Units with `technical_status = Aprobado` |
+| `rejected` | Units with `technical_status = Rechazado` |
+| `reviewed` | `approved + rejected` (units that have received a decision) |
+| `progress` | `round((reviewed / total) × 100)` — percentage complete |
+
+---
+
+## Review actions
+
+All review operations post to:
+
+```
+POST /technical-receptions/{technicalReception}/tank-reviews/process
+```
+
+The `action` field controls which operation is performed.
+
+<Tabs>
+  <Tab title="Approve selected">
+    Mark one or more specific cylinders as approved.
+
+    <ParamField body="action" type="string" required>
+      Must be `approve`.
+    </ParamField>
+
+    <ParamField body="tank_ids[]" type="array" required>
+      Array of UUIDs identifying the tank units to approve. At least one ID is required. Every ID must exist in the `tank_units` table and must belong to a batch whose `document_number` matches the reception.
+    </ParamField>
+
+    **What happens on approval:**
+
+    For each selected tank unit, inside a single `DB::transaction`:
+
+    1. `technical_status_id` is updated to the **Aprobado** catalog entry.
+    2. `warehouse_area_id` is updated to the **Productos aprobados** area.
+    3. A `TankTechnicalReview` record is created with `result = approved`.
+    4. An `InventoryMovement` of type `CAMBIO_ESTADO_TECNICO` is recorded, capturing the previous area, the new area, the document number as `reference_document`, and a human-readable note: `"Revisión técnica aprobada. Estado técnico: {previous} → Aprobado."`.
+
+    On success, the user is redirected back to the tank reviews index with a count message, e.g. `"2 tanque(s) aprobado(s) y trasladado(s) al área de Productos aprobados."`.
+  </Tab>
+
+  <Tab title="Reject selected">
+    Mark one or more specific cylinders as rejected and record the anomaly.
+
+    <ParamField body="action" type="string" required>
+      Must be `reject`.
+    </ParamField>
+
+    <ParamField body="tank_ids[]" type="array" required>
+      Array of UUIDs identifying the tank units to reject. At least one ID is required.
+    </ParamField>
+
+    <ParamField body="anomaly_type" type="string" required>
+      Short description of the defect or non-conformance found. Max 120 characters. This field is **required** for rejections.
+    </ParamField>
+
+    <ParamField body="observation" type="string">
+      Extended free-text notes about the rejection. Max 2 000 characters.
+    </ParamField>
+
+    **What happens on rejection:**
+
+    For each selected tank unit, inside a single `DB::transaction`:
+
+    1. `technical_status_id` is updated to the **Rechazado** catalog entry.
+    2. `warehouse_area_id` is updated to the **Rechazos, devoluciones y retiro del mercado** area.
+    3. A `TankTechnicalReview` record is created with `result = rejected`, `anomaly_type`, and `observation`.
+    4. An `InventoryMovement` of type `CAMBIO_ESTADO_TECNICO` is recorded, noting: `"Revisión técnica rechazada. Estado técnico: {previous} → Rechazado. Anomalía: {anomaly_type}. Observación: {observation}"`.
+
+    On success, the user is redirected back to the tank reviews index with a count message, e.g. `"1 tanque(s) rechazado(s) y trasladado(s) al área de rechazos/devoluciones."`.
+  </Tab>
+
+  <Tab title="Approve all pending">
+    Approve every cylinder that is still pending review in a single operation — no individual selection required.
+
+    <ParamField body="action" type="string" required>
+      Must be `approve_all_pending`.
+    </ParamField>
+
+    No `tank_ids` parameter is needed. The service collects all `TankUnit` records for this reception's `document_number` whose `technicalStatus.name = Pendiente`, then delegates to the same `approve()` method used for individual approvals — so the full approval pipeline (status update, area move, review record, inventory movement) runs for each cylinder inside one atomic transaction.
+
+    If no pending tanks exist when this action is submitted, the service throws a `RuntimeException` with the message *"No existen tanques pendientes de revisión para esta orden."* and the user is returned to the form with the error.
+
+    On success, the user sees: `"{n} tanque(s) pendiente(s) fueron aprobados correctamente."`.
+  </Tab>
+</Tabs>
+
+---
+
+## TankTechnicalReview record
+
+Every approval or rejection creates exactly one `TankTechnicalReview` row. The table schema is:
+
+| Field | Type | Notes |
+|---|---|---|
+| `tank_unit_id` | UUID | Foreign key → `tank_units.id`, cascades on delete |
+| `technical_reception_id` | bigint | Foreign key → `technical_receptions.id`, set null on delete |
+| `result` | string(20) | `approved` or `rejected` |
+| `anomaly_type` | string(120) | Populated only on rejections |
+| `observation` | text | Optional extended notes; populated only on rejections |
+| `reviewed_by_user_email` | string(150) | Email of the authenticated user who performed the review |
+| `reviewed_at` | datetime | Timestamp of the review decision |
+
+The model exposes two convenience methods:
+
+```php
+$review->isApproved(); // true when result === 'approved'
+$review->isRejected(); // true when result === 'rejected'
+```
+
+A `TankUnit` can have multiple `TankTechnicalReview` records over its lifetime (e.g. rejected, returned to supplier, received again under a new document number), but within a single reception each unit is reviewed exactly once.
+
+---
+
+## Filtering the review list
+
+```
+GET /technical-receptions/{technicalReception}/tank-reviews
+```
+
+<ParamField query="serial" type="string">
+  Partial match on the cylinder's `serial` field. Performs a `LIKE "%{serial}%"` search.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by current technical status name. Accepted values: `Pendiente`, `Aprobado`, `Rechazado`. The filter resolves through the `technicalStatus` relationship, so it always reflects the current catalog values.
+</ParamField>
+
+All query string parameters are preserved through pagination via `withQueryString()`.
+
+---
+
+<Warning>
+  Only tanks with `technical_status = Pendiente` can be submitted for review. If any selected `tank_id` belongs to a cylinder that has already been approved or rejected, the service will throw a `RuntimeException` identifying the first offending serial: `"El tanque {serial} ya fue revisado."` The entire batch of IDs is rolled back — no partial updates occur.
+</Warning>
+
+<Warning>
+  The catalog entries **"Aprobado"**, **"Rechazado"** (in `technical_statuses`), **"Productos aprobados"**, and **"Rechazos, devoluciones y retiro del mercado"** (in `warehouse_areas`) must exist in the database before any review action is processed. If any of these entries is missing, the service throws a `RuntimeException` and the transaction is aborted. Ensure seeder data is complete before putting the review workflow into production.
+</Warning>
+
+<Note>
+  All approve and reject operations — including bulk approval — are wrapped in `DB::transaction()`. Tank rows are fetched with `lockForUpdate()` before any mutation is applied, preventing concurrent requests from reviewing the same cylinder simultaneously. If two users attempt to review the same tank at the same moment, the second request will either block until the first commits or fail with a database-level lock error, ensuring data integrity is never compromised.
+</Note>

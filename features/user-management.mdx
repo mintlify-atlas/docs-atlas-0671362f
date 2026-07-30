@@ -1,0 +1,125 @@
+---
+title: "User Management: Accounts, Roles, and Access Control"
+sidebarTitle: "User Management"
+description: "Create and manage OxygenDispatch user accounts with role-based access. Control active status and reset passwords — restricted to PROGRAMADOR and ADMINISTRADOR roles."
+---
+
+OxygenDispatch includes a built-in user management module that lets privileged administrators create staff accounts, assign roles, control login access, and reset passwords — all without touching the database directly. Every user account is tied to one of three roles that determine which areas of the application that user can access.
+
+<Note>
+  All user management routes (`/users` and its sub-actions) are protected by the `role:PROGRAMADOR,ADMINISTRADOR` middleware. Users with the **ENCARGADO** role cannot access the user list, create new accounts, edit existing ones, or perform any password or status actions. Attempts to access these routes will be blocked at the middleware level.
+</Note>
+
+## User fields
+
+The following fields are available when creating or editing a user account:
+
+<ParamField body="name" type="string" required>
+  Full display name for the user. Maximum 150 characters.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Email address used to log in. Must be a valid email format, unique across all user accounts, and no longer than 150 characters.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Access role assigned to the user. Must be one of the values defined in the `AppRole` enum: `PROGRAMADOR`, `ADMINISTRADOR`, or `ENCARGADO`. See the [Roles](#roles) section for a full description of each.
+</ParamField>
+
+<ParamField body="password" type="string">
+  Account password. Minimum 8 characters. This field is **optional on creation** — if omitted, the system auto-generates a secure 12-character random password (plus a trailing `!`) and includes it in the success flash message. The password field is not available on the edit/update form; use the dedicated [reset password](#resetting-passwords) action instead.
+</ParamField>
+
+<ParamField body="is_active" type="boolean">
+  Controls whether the user can log in. Defaults to `true` on account creation. Can be toggled at any time via the [toggle active](#toggling-active-status) action.
+</ParamField>
+
+## Creating users
+
+```http
+POST /users
+```
+
+Submit the create form to register a new user account. If you leave the **password** field blank, a random 12-character alphanumeric string with a trailing `!` is generated automatically using Laravel's `Str::random(12)`:
+
+```php
+$password = $data['password'] ?? Str::random(12) . '!';
+```
+
+On success, the application redirects to the user list and displays a flash message in the format:
+
+```
+Usuario creado. Password: <generated-password>
+```
+
+<Warning>
+  The auto-generated password is displayed **only once** in the success flash message immediately after account creation. Copy it and share it with the new user before navigating away — once the page is refreshed or you leave the screen, the plain-text password cannot be retrieved. If it is lost, use the [Reset Password](#resetting-passwords) action to issue a new one.
+</Warning>
+
+## Managing existing users
+
+### List users
+
+```http
+GET /users
+```
+
+Displays a paginated list of all user accounts, ordered by most recently created first. The list is paginated at **15 users per page**.
+
+### Edit a user
+
+```http
+GET  /users/{user}   # Load the edit form
+PUT  /users/{user}   # Submit changes
+```
+
+The edit form allows updating `name`, `email`, and `role`. Passwords are intentionally excluded from the update form — to change a password, use the [Reset Password](#resetting-passwords) action on the user's row.
+
+### Delete a user
+
+```http
+DELETE /users/{user}
+```
+
+Permanently removes the user account from the database. This action cannot be undone.
+
+## Toggling active status
+
+```http
+POST /users/{user}/toggle-active
+```
+
+Flips the user's `is_active` flag between `true` and `false`. This is a non-destructive way to prevent a user from logging in without deleting their account — useful for staff on leave or when access needs to be temporarily suspended.
+
+- If `is_active` is currently `true` → it becomes `false` (user is locked out)
+- If `is_active` is currently `false` → it becomes `true` (access restored)
+
+The action redirects back to the previous page with a `Estado actualizado.` success message.
+
+## Resetting passwords
+
+```http
+POST /users/{user}/reset-password
+```
+
+Generates a brand-new random password for the specified user — a 12-character alphanumeric string with a trailing `!` — hashes it, saves it to the user record, and returns the plain-text value in the success flash message:
+
+```
+Nueva contraseña: <new-password>
+```
+
+This is the only way to change an existing user's password through the UI. The action redirects back to the previous page on success.
+
+<Warning>
+  Like the creation password, the new password from a reset is shown **only once** in the flash message. Copy it immediately and relay it to the user. It cannot be recovered after you navigate away from the page.
+</Warning>
+
+## Roles
+
+OxygenDispatch uses three roles defined in the `AppRole` enum. Roles are stored as plain strings on the `users` table.
+
+| Role | Access |
+|---|---|
+| `PROGRAMADOR` | Full access to all features, including user management, catalog setup, batch and tank operations, dispatches, and reports |
+| `ADMINISTRADOR` | Full access to all features, including user management, catalog setup, batch and tank operations, dispatches, and reports |
+| `ENCARGADO` | Access to all operational features (batches, tanks, dispatches, inventory movements, reports, technical receptions); **cannot** access user management routes |

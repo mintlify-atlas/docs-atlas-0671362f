@@ -1,0 +1,140 @@
+---
+title: "Catalog Management: Configure Gas Types, Capacities, and Areas"
+sidebarTitle: "Catalog Management"
+description: "Manage the lookup catalogs that OxygenDispatch depends on: gas types, cylinder capacities, warehouse areas, and technical statuses — all required before creating batches."
+---
+
+Before you can create batches, generate tank units, run dispatches, or conduct technical reviews, OxygenDispatch needs four foundational lookup catalogs to be populated: gas types, cylinder capacities, warehouse areas, and technical statuses. These catalogs are not merely display labels — several of their entries are matched by **exact name** in business logic, so they must be set up carefully and in the right order before any operational work begins.
+
+## Gas Types
+
+**Route resource:** `catalog/gas-types` · **Named:** `gas-types`
+
+Gas types represent the different medical gases your facility handles (e.g., Oxígeno Medicinal, Nitrógeno, Aire Medicinal). Every tank unit and batch references a gas type.
+
+| Field | Validation | Description |
+|---|---|---|
+| `name` | required · string · max 120 · unique | Human-readable name for the gas type |
+
+Standard resource routes are available:
+
+```http
+GET    /catalog/gas-types           # List all gas types (paginated, 15 per page)
+GET    /catalog/gas-types/create    # New gas type form
+POST   /catalog/gas-types           # Store a new gas type
+GET    /catalog/gas-types/{id}/edit # Edit form
+PUT    /catalog/gas-types/{id}      # Update gas type
+DELETE /catalog/gas-types/{id}      # Delete gas type
+```
+
+## Cylinder Capacities
+
+**Route resource:** `catalog/capacities` · **Named:** `capacities`
+
+Cylinder capacities define the physical size classes of your cylinders. Each capacity record holds both a descriptive name (e.g., "10 L", "40 L") and its volume in cubic metres. The `m3` value is used directly by the monthly report module to calculate total volume for entries and exits summaries.
+
+| Field | Validation | Description |
+|---|---|---|
+| `name` | required · string · max 120 · unique | Descriptive label for the capacity (e.g., "10 L") |
+| `m3` | nullable · numeric | Volume in cubic metres — used in monthly report volume calculations |
+
+```http
+GET    /catalog/capacities           # List all capacities (paginated, 15 per page)
+GET    /catalog/capacities/create    # New capacity form
+POST   /catalog/capacities           # Store a new capacity
+GET    /catalog/capacities/{id}/edit # Edit form
+PUT    /catalog/capacities/{id}      # Update capacity
+DELETE /catalog/capacities/{id}      # Delete capacity
+```
+
+<Tip>
+  Always provide an accurate `m3` value for every capacity you create. If `m3` is left blank, those tanks will contribute `0` to all volume totals in monthly reports.
+</Tip>
+
+## Warehouse Areas
+
+**Route resource:** `catalog/warehouse-areas` · **Named:** `warehouse-areas`
+
+Warehouse areas represent the physical storage zones in your facility. Tank units are moved between areas via inventory movements, and the area a tank currently occupies determines whether it is eligible for dispatch or technical review.
+
+| Field | Validation | Description |
+|---|---|---|
+| `name` | required · string · max 120 · unique | Exact name of the warehouse area |
+
+```http
+GET    /catalog/warehouse-areas           # List all areas (paginated, 15 per page)
+GET    /catalog/warehouse-areas/create    # New area form
+POST   /catalog/warehouse-areas           # Store a new area
+GET    /catalog/warehouse-areas/{id}/edit # Edit form
+PUT    /catalog/warehouse-areas/{id}      # Update area
+DELETE /catalog/warehouse-areas/{id}      # Delete area
+```
+
+Four warehouse area names are **hard-coded into business logic** and must be created with the exact spelling, capitalisation, and accent marks shown below:
+
+| Area name | Role in the system |
+|---|---|
+| `Recepción` | All newly generated tank units start here automatically |
+| `Cuarentena` | Optional intermediate holding area during review |
+| `Productos aprobados` | Tanks must be in this area to be eligible for dispatch |
+| `Rechazos, devoluciones y retiro del mercado` | Tanks moved here after a review rejection or return |
+
+<Warning>
+  These four area names must be created **exactly** as shown — including accent marks (e.g., `Recepción` not `Recepcion`) and full punctuation (e.g., `Rechazos, devoluciones y retiro del mercado`). Any deviation in spelling or capitalisation will break tank generation, review approval, and dispatch eligibility checks.
+</Warning>
+
+## Technical Statuses
+
+**Route resource:** `catalog/technical-statuses` · **Named:** `technical-statuses`
+
+Technical statuses track the quality-control state of each tank unit. They are assigned automatically by the system when tanks are generated or when a technical review is completed.
+
+| Field | Validation | Description |
+|---|---|---|
+| `name` | required · string · max 120 · unique | Exact name of the technical status |
+
+```http
+GET    /catalog/technical-statuses           # List all statuses (paginated, 15 per page)
+GET    /catalog/technical-statuses/create    # New status form
+POST   /catalog/technical-statuses           # Store a new status
+GET    /catalog/technical-statuses/{id}/edit # Edit form
+PUT    /catalog/technical-statuses/{id}      # Update status
+DELETE /catalog/technical-statuses/{id}      # Delete status
+```
+
+Three status names are **hard-coded into business logic** and must exist with the exact names shown:
+
+| Status name | When it is assigned |
+|---|---|
+| `Pendiente` | Assigned to all tank units at the moment of generation |
+| `Aprobado` | Assigned when a technical review is approved |
+| `Rechazado` | Assigned when a technical review is rejected |
+
+<Warning>
+  These three status names must exist **exactly** as shown. If any of them is missing or misspelled, the system will fail when attempting to auto-assign statuses during tank generation or review processing.
+</Warning>
+
+## Setup checklist
+
+Follow this order when configuring a fresh OxygenDispatch installation. Each step depends on the ones before it.
+
+<Steps>
+  <Step title="Create gas types">
+    Add every medical gas your facility handles (e.g., Oxígeno Medicinal, Nitrógeno, CO₂). Navigate to **Catalog → Gas Types** and create each entry with a unique `name`.
+  </Step>
+  <Step title="Create cylinder capacities">
+    Add every cylinder size class your inventory uses. Navigate to **Catalog → Capacities** and create each entry with both a descriptive `name` and the corresponding `m3` value — this value drives all volume calculations in monthly reports.
+  </Step>
+  <Step title="Create the 4 required warehouse areas">
+    Navigate to **Catalog → Warehouse Areas** and create the four system-critical areas with names copied **exactly** as listed above: `Recepción`, `Cuarentena`, `Productos aprobados`, and `Rechazos, devoluciones y retiro del mercado`. You may add additional custom areas as needed.
+  </Step>
+  <Step title="Create the 3 required technical statuses">
+    Navigate to **Catalog → Technical Statuses** and create the three system-critical statuses with names copied **exactly**: `Pendiente`, `Aprobado`, and `Rechazado`. You may add additional custom statuses as needed.
+  </Step>
+  <Step title="Create catalog products">
+    With gas types and capacities in place, create the product catalog entries that pair a gas type with a cylinder capacity. These combinations are what batches reference when generating tank units.
+  </Step>
+  <Step title="Create batches and generate tanks">
+    Your catalogs are now complete. You can create batches and use the **Generate Tanks** action to produce individual tank unit records — each will be placed in `Recepción` with status `Pendiente` automatically.
+  </Step>
+</Steps>

@@ -1,0 +1,140 @@
+---
+title: "Monthly Reports: Entries and Exits with PDF Export"
+sidebarTitle: "Monthly Reports"
+description: "Generate monthly inventory entry and exit reports in OxygenDispatch. Export to A4 landscape PDF filtered by month, year, and client entity type."
+---
+
+OxygenDispatch's monthly report module gives you a consolidated, at-a-glance view of every inventory movement that occurred in a given month — both inbound entries and outbound dispatches. From the same screen you can export professionally formatted A4 landscape PDFs for record-keeping, audits, or regulatory submissions, optionally sliced by client entity type.
+
+## Report overview
+
+The monthly report dashboard is available at `GET /reports/monthly`. It renders two side-by-side summaries for the selected period: an **entries summary** covering all `ENTRADA` inventory movements (tanks received into a warehouse area), and an **exits summary** covering all completed dispatch records for the same period.
+
+The page is protected by the standard `auth` middleware — any authenticated user can view reports regardless of role.
+
+## Query parameters
+
+Both the dashboard view and the PDF export endpoints accept the same two query parameters to pin the reporting period.
+
+<ParamField query="month" type="integer">
+  Calendar month to report on. Must be between **1** and **12**. Defaults to the current month when omitted. Values outside the valid range are clamped automatically.
+</ParamField>
+
+<ParamField query="year" type="integer">
+  Four-digit calendar year to report on. Defaults to the current year when omitted.
+</ParamField>
+
+**Example — fetch the report for March 2025:**
+
+```http
+GET /reports/monthly?month=3&year=2025
+```
+
+## Entries summary
+
+The entries summary aggregates all `ENTRADA` inventory movements whose `occurred_at` timestamp falls within the requested month and year. The following fields are returned and rendered on the dashboard:
+
+| Field | Type | Description |
+|---|---|---|
+| `total_movements` | integer | Total number of `ENTRADA` movement records in the period |
+| `total_tanks` | integer | Total number of tank units that were received (equals `total_movements`) |
+| `total_m3` | float | Sum of cubic metres across all received tanks, derived from each tank's linked `CylinderCapacity.m3` value |
+| `distinct_batches` | integer | Count of unique batches referenced by the entries |
+| `main_area_label` | string | Name of the warehouse area that received the highest volume (m³) |
+| `main_area_m3` | float | Total cubic metres received by the leading area |
+| `by_area` | array | Breakdown of movements grouped by destination warehouse area, each with `label`, `total_movements`, `total_tanks`, and `total_m3`; sorted descending by volume |
+| `by_gas` | array | Breakdown grouped by gas type, each with `label`, `total_tanks`, and `total_m3`; sorted descending by volume |
+| `by_capacity` | array | Breakdown grouped by cylinder capacity, each with `label`, `total_tanks`, and `total_m3`; sorted descending by volume |
+| `expiration` | object | Expiration health snapshot — see below |
+
+### Expiration breakdown
+
+The `expiration` object on the entries summary is built from the distinct tank units included in those movements:
+
+| Key | Description |
+|---|---|
+| `valid` | Tanks whose `expires_at` is more than 6 months from today |
+| `warning` | Tanks expiring within the next 6 months (but not yet expired) |
+| `expired` | Tanks whose `expires_at` is in the past |
+| `without_date` | Tanks with no `expires_at` recorded |
+
+## Exits summary
+
+The exits summary aggregates all `Dispatch` records whose `dispatched_at` timestamp falls within the requested period. The following fields are returned:
+
+| Field | Type | Description |
+|---|---|---|
+| `total_dispatches` | integer | Total number of dispatch records in the period |
+| `total_tanks` | integer | Total tank units dispatched across all dispatch lines |
+| `total_m3` | float | Total cubic metres dispatched, derived from each tank's `CylinderCapacity.m3` |
+| `total_clients` | integer | Count of distinct clients served in the period |
+| `by_entity_type` | array | Volume breakdown by `EntityType` — see below |
+| `expiration` | object | Same expiration health snapshot structure as entries (valid / warning / expired / without_date) |
+
+### Entity type breakdown
+
+The `by_entity_type` array groups dispatches by the `EntityType` enum value recorded on each dispatch or its associated client. Each entry contains:
+
+| Key | Description |
+|---|---|
+| `entity_type` | Raw integer value of the `EntityType` enum |
+| `label` | Human-readable label for the entity type |
+| `total_dispatches` | Number of dispatch records in this group |
+| `total_tanks` | Total tank units dispatched to this entity type |
+| `total_m3` | Total cubic metres dispatched to this entity type |
+| `percentage_m3` | Percentage of total m³ this group represents |
+
+The three entity types defined in the `EntityType` enum are:
+
+| Value | Label |
+|---|---|
+| `1` | Entidad |
+| `2` | Intradomiciliario IESS |
+| `3` | No afiliado / Apoyo |
+
+## PDF exports
+
+OxygenDispatch generates two separate downloadable PDFs — one for entries and one for exits — rendered on **A4 paper in landscape orientation** using the DomPDF library.
+
+### Entries PDF
+
+```http
+GET /reports/monthly/entries/pdf?month={m}&year={y}
+```
+
+Downloads a complete entries report for the given period. The file is automatically named:
+
+```
+reporte-entradas-YYYY-MM.pdf
+```
+
+For example, requesting `?month=3&year=2025` produces `reporte-entradas-2025-03.pdf`.
+
+### Exits PDF
+
+```http
+GET /reports/monthly/exits/pdf?month={m}&year={y}&entity_type={1|2|3}
+```
+
+Downloads a complete exits report for the given period. The file is automatically named using the entity type label (slugified) or `general` when no filter is applied:
+
+```
+reporte-salidas-{entity-slug}-YYYY-MM.pdf
+```
+
+**Examples:**
+
+| URL | Filename |
+|---|---|
+| `?month=3&year=2025` | `reporte-salidas-general-2025-03.pdf` |
+| `?month=3&year=2025&entity_type=1` | `reporte-salidas-entidad-2025-03.pdf` |
+| `?month=3&year=2025&entity_type=2` | `reporte-salidas-intradomiciliario-iess-2025-03.pdf` |
+| `?month=3&year=2025&entity_type=3` | `reporte-salidas-no-afiliado---apoyo-2025-03.pdf` |
+
+<ParamField query="entity_type" type="integer">
+  Optional filter for the exits PDF. Pass `1` (Entidad), `2` (Intradomiciliario IESS), or `3` (No afiliado / Apoyo) to scope the PDF to a single segment. Omit entirely for a combined general report.
+</ParamField>
+
+<Tip>
+  Use the `entity_type` parameter on the exits PDF endpoint to generate segment-specific reports for billing or compliance purposes — for example, pass `entity_type=2` to export **only** IESS intradomiciliario dispatches for the month, without entries from other entity types appearing in the same document.
+</Tip>

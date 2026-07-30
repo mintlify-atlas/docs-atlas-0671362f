@@ -1,0 +1,201 @@
+---
+title: "Install and configure OxygenDispatch on your server"
+sidebarTitle: "Installation"
+description: "Full installation guide for OxygenDispatch covering server requirements, database setup, environment variables, and production deployment steps."
+---
+
+This guide covers everything you need to deploy OxygenDispatch on a production Linux server — from verifying PHP extensions and database credentials through building frontend assets, linking storage, and pointing your web server at the correct document root. Follow the steps in order; skipping any of them is the most common cause of a broken deployment.
+
+## Server requirements
+
+Before cloning the repository, confirm your server meets the following minimum requirements.
+
+**Runtime**
+
+| Requirement | Minimum version |
+|---|---|
+| PHP | 8.2 |
+| Composer | Latest stable |
+| Node.js | 18 LTS or higher |
+| npm | Bundled with Node 18+ |
+| MySQL | 8.0+ (recommended for production) |
+| SQLite | Any recent version (development / single-server only) |
+
+**Required PHP extensions**
+
+| Extension | Purpose |
+|---|---|
+| `mbstring` | Multi-byte string handling |
+| `pdo` | Database abstraction layer |
+| `pdo_mysql` | MySQL driver |
+| `openssl` | Encryption and signed URL generation |
+| `tokenizer` | Blade template compilation |
+| `xml` | DomPDF report generation |
+| `ctype` | Input validation |
+| `json` | JSON encoding / decoding |
+| `bcmath` | Arbitrary-precision arithmetic |
+| `fileinfo` | MIME type detection for uploaded signed PDFs |
+
+## Installation steps
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the project onto your server and enter the directory.
+
+    ```bash
+    git clone https://github.com/Janblack07/OxygenDispatch.git /var/www/oxygendispatch
+    cd /var/www/oxygendispatch
+    ```
+  </Step>
+
+  <Step title="Install PHP dependencies (production)">
+    Use the `--no-dev` flag to skip development-only packages (Faker, Pint, Sail, PHPUnit) and `--optimize-autoloader` to generate a classmap for faster class resolution in production.
+
+    ```bash
+    composer install --no-dev --optimize-autoloader
+    ```
+  </Step>
+
+  <Step title="Configure the environment file">
+    Copy the example environment file and open it in your editor.
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Set every value listed in the [Environment variables](#environment-variables) section below. Pay particular attention to `APP_ENV`, `APP_URL`, and all `DB_*` fields.
+  </Step>
+
+  <Step title="Generate the application key">
+    Laravel uses `APP_KEY` to encrypt session data, cookies, and signed URLs. Generate it once — never regenerate on a live server without re-encrypting any existing encrypted data.
+
+    ```bash
+    php artisan key:generate
+    ```
+  </Step>
+
+  <Step title="Run database migrations">
+    The `--force` flag is required in production (where `APP_ENV=production`) to bypass the interactive confirmation prompt.
+
+    ```bash
+    php artisan migrate --force
+    ```
+
+    This creates all 25 tables defined across the migration history, including `batches`, `tank_units`, `technical_receptions`, `tank_technical_reviews`, `dispatches`, `dispatch_lines`, and the full catalog set.
+  </Step>
+
+  <Step title="Build frontend assets">
+    Compile and minify all Tailwind CSS and JavaScript bundles. The compiled output lands in `public/build/`.
+
+    ```bash
+    npm install && npm run build
+    ```
+  </Step>
+
+  <Step title="Link public storage">
+    OxygenDispatch stores uploaded signed PDF files in `storage/app/public/technical-receptions/signed/` and serves them through the `public` disk. Run this command to create the symbolic link at `public/storage` → `storage/app/public`.
+
+    ```bash
+    php artisan storage:link
+    ```
+  </Step>
+
+  <Step title="Point the web server at the public directory">
+    The web server's document root must be set to the `public/` subdirectory, **not** the project root. Setting the root to the project root exposes `.env`, source code, and private keys to the public internet.
+
+    **Nginx example:**
+
+    ```nginx
+    server {
+        listen 80;
+        server_name oxygendispatch.example.com;
+        root /var/www/oxygendispatch/public;
+
+        index index.php;
+
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        location ~ \.php$ {
+            fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+            fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+            include fastcgi_params;
+        }
+    }
+    ```
+
+    **Apache example (`.htaccess` is already included in `public/`):**
+
+    ```apache
+    <VirtualHost *:80>
+        ServerName oxygendispatch.example.com
+        DocumentRoot /var/www/oxygendispatch/public
+
+        <Directory /var/www/oxygendispatch/public>
+            AllowOverride All
+            Require all granted
+        </Directory>
+    </VirtualHost>
+    ```
+  </Step>
+</Steps>
+
+## Environment variables
+
+The table below documents every variable you must review before going live. All variables live in `.env` at the project root and are loaded by Laravel's configuration system at boot time.
+
+| Variable | Example value | Description |
+|---|---|---|
+| `APP_NAME` | `OxygenDispatch` | The human-readable application name shown in the browser title and emails. |
+| `APP_ENV` | `production` | Set to `production` on live servers. Disables debug output and enables optimizations. |
+| `APP_KEY` | `base64:...` | 32-byte encryption key. Generated by `php artisan key:generate`. Never share this value. |
+| `APP_URL` | `https://oxygendispatch.example.com` | The canonical public URL. Used to generate signed PDF download links and asset URLs. |
+| `DB_CONNECTION` | `mysql` | Database driver. Use `mysql` for production, `sqlite` for a local dev file-based database. |
+| `DB_HOST` | `127.0.0.1` | Hostname or IP address of the MySQL server. |
+| `DB_PORT` | `3306` | MySQL port. Default is `3306`. |
+| `DB_DATABASE` | `oxygen_dispatch` | Name of the database schema. Create this schema before running migrations. |
+| `DB_USERNAME` | `oxygen_user` | MySQL user with full privileges on `DB_DATABASE`. |
+| `DB_PASSWORD` | `s3cr3t!` | Password for the MySQL user. |
+
+## Development server
+
+For local development, the `composer dev` script starts four concurrent processes using `npx concurrently` — the Artisan HTTP server, a queue worker, the Pail real-time log viewer, and the Vite HMR dev server. Run it from the project root:
+
+```bash
+composer dev
+```
+
+| Process | Command | Purpose |
+|---|---|---|
+| `server` | `php artisan serve` | Serves the application on `http://localhost:8000` |
+| `queue` | `php artisan queue:listen --tries=1 --timeout=0` | Processes queued jobs (e.g. notifications) |
+| `logs` | `php artisan pail --timeout=0` | Streams formatted application logs to the terminal |
+| `vite` | `npm run dev` | Hot-module replacement for CSS and JS during development |
+
+Press `Ctrl+C` to terminate all processes at once. The `--kill-others` flag ensures all child processes are stopped if any one of them exits.
+
+## Storage
+
+Signed PDF copies of technical reception documents are uploaded by users and stored under `storage/app/public/technical-receptions/signed/`. These files are served through Laravel's `public` storage disk, which maps to the symlinked `public/storage/` directory.
+
+**Creating the symlink** (required once on every server):
+
+```bash
+php artisan storage:link
+```
+
+After the link is in place, a signed PDF stored at `storage/app/public/technical-receptions/signed/reception-42.pdf` will be publicly accessible at `https://your-domain.com/storage/technical-receptions/signed/reception-42.pdf`.
+
+The unsigned PDF reports (monthly entries and exits) are generated on the fly by the `MonthlyReportController` using DomPDF and streamed directly to the browser — no file is written to disk for those.
+
+<Warning>
+  The `storage/` directory and the `bootstrap/cache/` directory **must be writable** by the web server user (typically `www-data` on Debian/Ubuntu). If either directory is not writable, Laravel will throw a fatal error on every request. Set permissions with:
+
+  ```bash
+  chown -R www-data:www-data storage bootstrap/cache
+  chmod -R 775 storage bootstrap/cache
+  ```
+
+  Do **not** set these directories to `777` on a shared or public-facing server.
+</Warning>

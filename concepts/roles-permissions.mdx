@@ -1,0 +1,99 @@
+---
+title: "Roles and Permissions in OxygenDispatch"
+sidebarTitle: "Roles & Permissions"
+description: "OxygenDispatch uses three roles — PROGRAMADOR, ADMINISTRADOR, and ENCARGADO — to control access to user management and administrative features."
+---
+
+OxygenDispatch implements a lightweight role system to separate day-to-day operational access from sensitive administrative functions such as creating or deactivating user accounts. Roles are stored as a plain string column on the `users` table and checked at the route level via middleware, keeping the authorization model simple and transparent without requiring a dedicated permissions package.
+
+## Available roles
+
+Roles are defined in `App\Enums\AppRole` as a string-backed enum:
+
+```php
+enum AppRole: string
+{
+    case PROGRAMADOR  = 'PROGRAMADOR';
+    case ADMINISTRADOR = 'ADMINISTRADOR';
+    case ENCARGADO    = 'ENCARGADO';
+}
+```
+
+| Role | Description |
+|------|-------------|
+| `PROGRAMADOR` | Full access to all application features, including user management. Intended for developers and system owners. |
+| `ADMINISTRADOR` | Full access to all application features, including user management. Intended for facility administrators. |
+| `ENCARGADO` | Operational access to batches, tanks, dispatches, inventory, and reports. Cannot create, edit, deactivate, or reset passwords for other users. |
+
+Both `PROGRAMADOR` and `ADMINISTRADOR` are treated identically by the route middleware — either role satisfies the access check for protected routes.
+
+## Route-level protection
+
+All application routes sit inside a single `auth` middleware group. A subset of user-management routes additionally require one of the two administrative roles:
+
+### Layer 1 — `auth` middleware
+
+Every route under the main group (`/dashboard`, `/batches`, `/tanks`, `/dispatches`, `/inventory`, etc.) requires an authenticated session. Unauthenticated requests are redirected to the login page.
+
+```php
+Route::middleware(['auth'])->group(function () {
+    // All core application routes
+});
+```
+
+### Layer 2 — `role:PROGRAMADOR,ADMINISTRADOR` middleware
+
+User CRUD and account-management routes are nested inside a second middleware layer that additionally checks the authenticated user's role:
+
+```php
+Route::middleware(['role:PROGRAMADOR,ADMINISTRADOR'])->group(function () {
+    Route::resource('users', UserController::class);
+    Route::post('users/{user}/toggle-active', ...);
+    Route::post('users/{user}/reset-password', ...);
+});
+```
+
+An `ENCARGADO` who attempts to access any of these routes will be denied, even though they hold a valid authenticated session.
+
+## Protected routes
+
+The following routes are gated behind `role:PROGRAMADOR,ADMINISTRADOR` and are inaccessible to `ENCARGADO` users:
+
+| Method | URI | Action |
+|--------|-----|--------|
+| `GET` | `/users` | List all users |
+| `POST` | `/users` | Create a new user |
+| `GET` | `/users/{user}` | View a user's profile |
+| `PUT` / `PATCH` | `/users/{user}` | Update a user's details or role |
+| `DELETE` | `/users/{user}` | Delete a user |
+| `POST` | `/users/{user}/toggle-active` | Activate or deactivate a user account |
+| `POST` | `/users/{user}/reset-password` | Reset a user's password |
+
+## Entity types for clients
+
+Client records carry an `EntityType` classification used to categorize dispatch recipients and filter monthly exit reports. The type is stored as a backed integer enum (`App\Enums\EntityType`):
+
+```php
+enum EntityType: int
+{
+    case ENTIDAD                = 1;
+    case INTRADOMICILIARIO_IESS = 2;
+    case NO_AFILIADO_APOYO      = 3;
+}
+```
+
+| Value | Integer | Label | Use case |
+|-------|---------|-------|----------|
+| `ENTIDAD` | `1` | Entidad | Institutional clients (hospitals, clinics, etc.) |
+| `INTRADOMICILIARIO_IESS` | `2` | Intradomiciliario IESS | IESS home-care patients |
+| `NO_AFILIADO_APOYO` | `3` | No afiliado / Apoyo | Unaffiliated recipients or support cases |
+
+Entity type is set when creating or editing a client and appears in the monthly exit PDF reports to allow category-level analysis of dispatch volumes.
+
+<Warning>
+  The `role` middleware reads the `role` column directly from the `users` table. If a user record is created or updated with an incorrect or missing `role` value, that user will either be denied access to routes they should reach or — more critically — gain access to user-management routes they should not. Always set `role` to one of the three valid enum values (`PROGRAMADOR`, `ADMINISTRADOR`, `ENCARGADO`) when creating or editing users programmatically or through seeders.
+</Warning>
+
+<Note>
+  Every `users` record also carries an `is_active` boolean flag. Users with `is_active = false` cannot log in, regardless of their role. The toggle-active endpoint (`POST /users/{user}/toggle-active`) flips this flag and is available only to `PROGRAMADOR` and `ADMINISTRADOR` roles. Use this flag to suspend access without permanently deleting the account.
+</Note>

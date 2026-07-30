@@ -1,20 +1,64 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "OxygenDispatch: Medical Gas Cylinder Management"
+sidebarTitle: "Home"
+description: "OxygenDispatch is a Laravel-based platform for managing medical oxygen cylinder inventory, technical receptions, and dispatches from intake to delivery."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+OxygenDispatch is a full-stack web application built for medical gas distributors. It tracks every oxygen cylinder from the moment it arrives in a batch through technical inspection, warehouse staging, and final dispatch to clients — with a complete audit trail at every step.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get OxygenDispatch running locally in minutes with a step-by-step setup guide.
+  </Card>
+  <Card title="Installation" icon="server" href="/installation">
+    Full installation instructions including environment configuration and database setup.
+  </Card>
+  <Card title="Tank Lifecycle" icon="rotate" href="/concepts/tank-lifecycle">
+    Understand how a cylinder moves from Reception through approval to dispatch.
+  </Card>
+  <Card title="Inventory Flow" icon="arrow-right-arrow-left" href="/concepts/inventory-flow">
+    Learn how warehouse areas, movements, and statuses interconnect.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What OxygenDispatch does
+
+OxygenDispatch manages the full lifecycle of medical gas cylinders (tanks) for distributors:
+
+<Steps>
+  <Step title="Receive a batch">
+    Register incoming cylinder shipments as **Batches** with supplier info, voucher data, and auto-generated serial numbers. Each batch can contain up to 5,000 tank units.
+  </Step>
+  <Step title="Inspect and approve">
+    Run a **Technical Reception** checklist covering documentary review, certificates of analysis, and physical inspection. Approve or reject individual tanks with anomaly tracking.
+  </Step>
+  <Step title="Manage inventory">
+    Transfer tanks between **Warehouse Areas** (Reception → Quarantine → Approved Products → Returns) and track every movement in the full audit log.
+  </Step>
+  <Step title="Dispatch to clients">
+    Create dispatches by selecting individual tank serials or by specifying a quantity with optional filters. Dispatches automatically record remission details and the client entity type.
+  </Step>
+</Steps>
+
+## Key capabilities
+
+<CardGroup cols={3}>
+  <Card title="Batch Management" icon="box-archive" href="/features/batches">
+    Register supplier shipments and generate serialized tank units with prefix sequences.
+  </Card>
+  <Card title="Technical Reception" icon="clipboard-check" href="/features/technical-receptions">
+    30-item compliance checklist with PDF export and signed document upload.
+  </Card>
+  <Card title="Tank Reviews" icon="magnifying-glass" href="/features/tank-reviews">
+    Approve or reject individual tanks with anomaly type recording.
+  </Card>
+  <Card title="Dispatches" icon="truck" href="/features/dispatches">
+    Dispatch by serial selection or by quantity using FIFO allocation.
+  </Card>
+  <Card title="Monthly Reports" icon="chart-bar" href="/features/monthly-reports">
+    Entries and exits PDF reports broken down by gas type, capacity, and entity type.
+  </Card>
+  <Card title="User Management" icon="users" href="/features/user-management">
+    Role-based access with PROGRAMADOR, ADMINISTRADOR, and ENCARGADO roles.
+  </Card>
+</CardGroup>

@@ -1,0 +1,131 @@
+{
+  "projectType": "saas",
+  "projectName": "OxygenDispatch",
+  "projectDescription": "A Laravel-based medical gas cylinder inventory and dispatch management system for tracking oxygen tank batches, technical receptions, warehouse movements, and client dispatches.",
+  "theme": "almond",
+  "primaryColor": "#fc4539",
+  "lightColor": "#fca9a2",
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/tank-lifecycle",
+              "concepts/inventory-flow",
+              "concepts/roles-permissions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Features",
+        "groups": [
+          {
+            "group": "Inventory Management",
+            "pages": [
+              "features/batches",
+              "features/tank-units",
+              "features/inventory-movements"
+            ]
+          },
+          {
+            "group": "Technical Reception",
+            "pages": [
+              "features/technical-receptions",
+              "features/tank-reviews"
+            ]
+          },
+          {
+            "group": "Dispatches",
+            "pages": [
+              "features/dispatches",
+              "features/clients"
+            ]
+          },
+          {
+            "group": "Reports & Admin",
+            "pages": [
+              "features/monthly-reports",
+              "features/catalog-management",
+              "features/user-management"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Data Models",
+            "pages": [
+              "reference/data-models",
+              "reference/enums",
+              "reference/database-schema"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "reference/configuration",
+              "reference/environment-variables"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Batch-based oxygen cylinder intake with auto-generated serial numbers",
+    "Technical reception checklists with PDF export and signed PDF upload",
+    "Per-tank technical review workflow (approve/reject with anomaly tracking)",
+    "Dispatch by individual tank selection or by quantity with FIFO allocation",
+    "Full inventory movement audit trail (ENTRADA, TRASLADO, SALIDA, CAMBIO_ESTADO_TECNICO)",
+    "Warehouse area transfers between Reception, Quarantine, Approved Products, and Returns",
+    "Monthly entry and exit reports with PDF export filtered by entity type",
+    "Role-based access control (PROGRAMADOR, ADMINISTRADOR, ENCARGADO)",
+    "Client management with entity type classification (Entidad, Intradomiciliario IESS, No afiliado/Apoyo)",
+    "Dashboard with real-time stock counters and dispatch statistics"
+  ],
+  "publicApiSurface": [
+    "GET /dashboard — inventory summary dashboard",
+    "GET/POST /batches — batch index, create, store",
+    "GET/PUT/DELETE /batches/{batch} — batch show, edit, update, destroy",
+    "POST /batches/{batch}/generate-tanks — generate tank units for a batch",
+    "GET /tanks — tank unit index with filters",
+    "GET /tanks/{tank} — tank unit detail with movement history",
+    "POST /tanks/{tank}/transfer — transfer tank to warehouse area",
+    "POST /tanks/{tank}/technical-status — change tank technical status",
+    "POST /tanks/{tank}/decommission — decommission a tank",
+    "GET /inventory/movements — inventory movement log",
+    "GET/POST /dispatches — dispatch list and create by serial",
+    "GET/POST /dispatches/create-by-quantity — dispatch by quantity with filters",
+    "GET /dispatches/{dispatch} — dispatch detail",
+    "GET/POST /technical-receptions — reception index and create",
+    "GET/PUT /technical-receptions/{technicalReception} — show and edit reception",
+    "GET /technical-receptions/{technicalReception}/pdf — generate PDF",
+    "POST /technical-receptions/{technicalReception}/signed-pdf — upload signed PDF",
+    "GET /technical-receptions/{technicalReception}/tank-reviews — review list",
+    "POST /technical-receptions/{technicalReception}/tank-reviews/process — approve/reject tanks",
+    "GET/POST /clients — client list and create",
+    "GET /clients/find-by-document — JSON client lookup by document number",
+    "GET /reports/monthly — monthly report index",
+    "GET /reports/monthly/entries/pdf — monthly entries PDF export",
+    "GET /reports/monthly/exits/pdf — monthly exits PDF export",
+    "GET/POST /users — user management (PROGRAMADOR/ADMINISTRADOR only)",
+    "POST /users/{user}/toggle-active — activate/deactivate user",
+    "POST /users/{user}/reset-password — reset user password",
+    "Catalog resources: /catalog/gas-types, /catalog/capacities, /catalog/warehouse-areas, /catalog/technical-statuses"
+  ]
+}

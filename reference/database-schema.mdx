@@ -1,0 +1,357 @@
+---
+title: "Database Schema: Tables, Columns, and Relationships"
+sidebarTitle: "Database Schema"
+description: "Complete database schema reference for OxygenDispatch — all tables, columns with types and constraints, and foreign key relationships derived from the migration files."
+---
+
+OxygenDispatch uses a relational MySQL/MariaDB schema managed entirely through Laravel migrations. The schema is structured around a central `tank_units` table (one row per physical cylinder), radiating outward to procurement records (`batches`, `technical_receptions`), logistics records (`inventory_movements`, `dispatches`, `dispatch_lines`), and a set of lookup/catalog tables (`gas_types`, `cylinder_capacities`, `warehouse_areas`, `technical_statuses`, `catalog_products`). The sections below document every table in the final migrated state — that is, including all `ALTER TABLE` changes applied by subsequent migration files.
+
+---
+
+## Tables
+
+<AccordionGroup>
+
+<Accordion title="users">
+
+Stores authenticated system users. The `role` and `is_active` columns were added in a subsequent migration (`2026_02_06_224521`).
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `varchar(255)` | NOT NULL | |
+| `email` | `varchar(255)` | NOT NULL, UNIQUE | |
+| `email_verified_at` | `timestamp` | nullable | |
+| `password` | `varchar(255)` | NOT NULL | Bcrypt hash |
+| `role` | `varchar(30)` | NOT NULL, default `'ENCARGADO'` | Maps to `AppRole` enum values |
+| `is_active` | `boolean` | NOT NULL, default `true` | Soft-disable a user without deletion |
+| `remember_token` | `varchar(100)` | nullable | Laravel remember-me token |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="gas_types">
+
+Lookup table for gas type classifications (e.g., medical oxygen, nitrogen).
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `varchar(120)` | NOT NULL, UNIQUE | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="cylinder_capacities">
+
+Lookup table for cylinder volumetric capacity definitions.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `varchar(120)` | NOT NULL, UNIQUE | |
+| `m3` | `decimal(10,2)` | nullable | Volume in cubic metres |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="warehouse_areas">
+
+Lookup table for named physical zones within the warehouse.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `varchar(120)` | NOT NULL, UNIQUE | e.g., `Cuarentena`, `Productos aprobados`, `Baja` |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="technical_statuses">
+
+Lookup table for technical inspection status labels.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `varchar(120)` | NOT NULL, UNIQUE | e.g., `Aprobado`, `Rechazado`, `En revisión` |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="clients">
+
+Stores the receiving clients for cylinder dispatches. The `entity_type` column was added in migration `2026_03_14_150130`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `name` | `varchar(200)` | NOT NULL | |
+| `entity_type` | `tinyint unsigned` | nullable | Maps to `EntityType` enum (1/2/3) |
+| `document` | `varchar(50)` | nullable | ID or RUC document number |
+| `phone` | `varchar(50)` | nullable | |
+| `email` | `varchar(120)` | nullable | |
+| `address` | `varchar(255)` | nullable | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="batches">
+
+Records an incoming shipment of cylinders from a supplier. `gas_type_id` and `capacity_id` were made nullable by migrations `2026_02_08_203714` and `2026_02_08_200840` respectively.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `batch_number` | `varchar(100)` | NOT NULL, UNIQUE | |
+| `gas_type_id` | `bigint unsigned` | nullable, FK → `gas_types.id` | |
+| `capacity_id` | `bigint unsigned` | nullable, FK → `cylinder_capacities.id` | |
+| `received_at` | `datetime` | NOT NULL | |
+| `document_number` | `varchar(100)` | nullable | Shared with `technical_receptions.document_number` |
+| `supplier_name` | `varchar(200)` | nullable | |
+| `supplier_code` | `varchar(100)` | nullable | |
+| `voucher_type` | `varchar(50)` | nullable | |
+| `voucher_number` | `varchar(100)` | nullable | |
+| `voucher_date` | `date` | nullable | |
+| `sanitary_registry` | `varchar(100)` | nullable | |
+| `manufactured_at` | `date` | nullable | |
+| `expires_at` | `date` | nullable | |
+| `notes` | `text` | nullable | |
+| `created_by_user_email` | `varchar(150)` | NOT NULL | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="tank_units">
+
+The central table — one row per physical cylinder. Uses a UUID primary key. `product_id`, `serial_prefix`, `serial_number`, and `updated_at` were added by subsequent migrations.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `uuid` (char 36) | PK | Auto-generated UUID |
+| `serial` | `varchar(120)` | NOT NULL, UNIQUE | Full serial string |
+| `serial_prefix` | `varchar(10)` | nullable | Alphabetic prefix of the serial |
+| `serial_number` | `bigint unsigned` | nullable | Numeric portion of the serial |
+| `batch_id` | `bigint unsigned` | NOT NULL, FK → `batches.id` CASCADE DELETE | |
+| `product_id` | `bigint unsigned` | nullable, FK → `catalog_products.id` | |
+| `gas_type_id` | `bigint unsigned` | NOT NULL, FK → `gas_types.id` | |
+| `capacity_id` | `bigint unsigned` | NOT NULL, FK → `cylinder_capacities.id` | |
+| `warehouse_area_id` | `bigint unsigned` | NOT NULL, FK → `warehouse_areas.id` | |
+| `technical_status_id` | `bigint unsigned` | NOT NULL, FK → `technical_statuses.id` | |
+| `sanitary_registry` | `varchar(100)` | nullable | |
+| `manufactured_at` | `date` | nullable | |
+| `expires_at` | `date` | nullable | |
+| `status` | `tinyint unsigned` | NOT NULL, default `1` | Maps to `TankStatus` enum (1 = DISPONIBLE) |
+| `dispatched_at` | `datetime` | nullable | Set when status changes to DESPACHADO |
+| `created_at` | `datetime` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="inventory_movements">
+
+Append-only audit log for all cylinder state changes. Has no `updated_at` — movements are immutable.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `type` | `tinyint unsigned` | NOT NULL | Maps to `MovementType` enum (1–4) |
+| `occurred_at` | `datetime` | NOT NULL | When the movement occurred |
+| `tank_unit_id` | `uuid` (char 36) | NOT NULL, FK → `tank_units.id` CASCADE DELETE | |
+| `from_area_id` | `bigint unsigned` | nullable, FK → `warehouse_areas.id` | Source area (null for ENTRADA) |
+| `to_area_id` | `bigint unsigned` | nullable, FK → `warehouse_areas.id` | Destination area (null for SALIDA) |
+| `batch_id` | `bigint unsigned` | nullable, FK → `batches.id` SET NULL ON DELETE | |
+| `reference_document` | `varchar(150)` | nullable | |
+| `performed_by_user_email` | `varchar(150)` | NOT NULL | |
+| `notes` | `varchar(500)` | nullable | |
+
+</Accordion>
+
+<Accordion title="dispatches">
+
+Records a completed outbound delivery event. `client_id` is set to `null` if the client is deleted (preserving historical dispatch data).
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `client_id` | `bigint unsigned` | nullable, FK → `clients.id` SET NULL ON DELETE | |
+| `dispatched_at` | `datetime` | NOT NULL | |
+| `document_number` | `varchar(100)` | nullable | |
+| `entity_type` | `tinyint unsigned` | nullable | Maps to `EntityType` enum (1/2/3) |
+| `remission_plate` | `varchar(50)` | nullable | Vehicle plate for the remission |
+| `performed_by_user_email` | `varchar(150)` | NOT NULL | |
+| `voucher_type` | `varchar(50)` | nullable | |
+| `voucher_number` | `varchar(100)` | nullable | |
+| `remission_number` | `varchar(100)` | nullable | |
+| `notes` | `text` | nullable | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+<Accordion title="dispatch_lines">
+
+Join table linking dispatches to individual tank units. Has no timestamps. A composite unique constraint prevents the same cylinder from appearing twice in one dispatch.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `dispatch_id` | `bigint unsigned` | NOT NULL, FK → `dispatches.id` CASCADE DELETE | |
+| `tank_unit_id` | `uuid` (char 36) | NOT NULL, FK → `tank_units.id` RESTRICT DELETE | |
+
+**Unique constraint:** `(dispatch_id, tank_unit_id)`
+
+</Accordion>
+
+<Accordion title="technical_receptions">
+
+Formal quality-control document for a received batch. `signed_pdf_path`, `signed_pdf_uploaded_at`, and `signed_pdf_uploaded_by` were added by migration `2026_06_07_015834`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `document_number` | `varchar(100)` | NOT NULL, UNIQUE | Shared with `batches.document_number` |
+| `reception_date` | `datetime` | nullable | |
+| `invoice_number` | `varchar(100)` | nullable | |
+| `remission_guide_number` | `varchar(100)` | nullable | |
+| `supplier_name` | `varchar(200)` | nullable | |
+| `manufacturer_name` | `varchar(200)` | nullable | |
+| `delivered_by` | `varchar(200)` | nullable | Name of delivery person |
+| `received_by` | `varchar(200)` | nullable | Name of receiving person |
+| `storage_conditions` | `text` | nullable | |
+| `quantity_received` | `int unsigned` | NOT NULL, default `0` | |
+| `documentation_complies` | `boolean` | nullable | |
+| `final_result` | `varchar(20)` | NOT NULL, default `'pendiente'` | `'pendiente'`, `'aprobado'`, or `'rechazado'` |
+| `responsible_name` | `varchar(200)` | nullable | |
+| `responsible_position` | `varchar(200)` | nullable | |
+| `responsible_observation` | `text` | nullable | |
+| `signed_pdf_path` | `varchar(255)` | nullable | Storage path to the signed PDF file |
+| `signed_pdf_uploaded_at` | `timestamp` | nullable | |
+| `signed_pdf_uploaded_by` | `varchar(255)` | nullable | Email of uploader |
+| `created_by_user_email` | `varchar(150)` | nullable | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+**Indexes:** `(document_number, final_result)`
+
+</Accordion>
+
+<Accordion title="technical_reception_items">
+
+Checklist rows belonging to a `TechnicalReception`. Rows cascade-delete when the parent reception is removed.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `technical_reception_id` | `bigint unsigned` | NOT NULL, FK → `technical_receptions.id` CASCADE DELETE | |
+| `section` | `varchar(120)` | NOT NULL | Checklist section name |
+| `label` | `text` | NOT NULL | Human-readable checklist item description |
+| `complies` | `boolean` | nullable | `null` = not yet evaluated |
+| `observation` | `text` | nullable | |
+| `sort_order` | `smallint unsigned` | NOT NULL, default `0` | Display order within section |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+**Indexes:** `(technical_reception_id, section)`
+
+</Accordion>
+
+<Accordion title="tank_technical_reviews">
+
+Records the per-cylinder outcome of a technical inspection within a reception event.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `tank_unit_id` | `uuid` (char 36) | NOT NULL, FK → `tank_units.id` CASCADE DELETE | |
+| `technical_reception_id` | `bigint unsigned` | nullable, FK → `technical_receptions.id` SET NULL ON DELETE | |
+| `result` | `varchar(20)` | NOT NULL | `'approved'` or `'rejected'` |
+| `anomaly_type` | `varchar(120)` | nullable | Populated only when `result = 'rejected'` |
+| `observation` | `text` | nullable | |
+| `reviewed_by_user_email` | `varchar(150)` | NOT NULL | |
+| `reviewed_at` | `datetime` | NOT NULL | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+**Indexes:**
+- `(tank_unit_id, result, reviewed_at)`
+- `(technical_reception_id, result)`
+
+</Accordion>
+
+<Accordion title="catalog_products">
+
+Officially registered product definitions combining gas type, capacity, and sanitary registry.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `bigint unsigned` | PK, auto-increment | |
+| `code` | `varchar(50)` | NOT NULL, UNIQUE | e.g., `OMG-1`, `00AC` |
+| `detail` | `varchar(255)` | NOT NULL | e.g., `OXÍGENO MEDICINAL GAS 1 m³` |
+| `gas_type_id` | `bigint unsigned` | NOT NULL, FK → `gas_types.id` | |
+| `capacity_id` | `bigint unsigned` | nullable, FK → `cylinder_capacities.id` | |
+| `sanitary_registry` | `varchar(80)` | nullable | |
+| `created_at` | `timestamp` | nullable | |
+| `updated_at` | `timestamp` | nullable | |
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Relationship Map
+
+The following describes every significant foreign-key and logical relationship in the schema. Database-enforced foreign keys are marked **FK**; logical relationships (matched by value, not a database constraint) are marked **logical**.
+
+**Catalog / Lookup references**
+- `batches.gas_type_id` → `gas_types.id` (FK, nullable)
+- `batches.capacity_id` → `cylinder_capacities.id` (FK, nullable)
+- `tank_units.gas_type_id` → `gas_types.id` (FK)
+- `tank_units.capacity_id` → `cylinder_capacities.id` (FK)
+- `tank_units.warehouse_area_id` → `warehouse_areas.id` (FK)
+- `tank_units.technical_status_id` → `technical_statuses.id` (FK)
+- `catalog_products.gas_type_id` → `gas_types.id` (FK)
+- `catalog_products.capacity_id` → `cylinder_capacities.id` (FK, nullable)
+
+**Batch → TankUnit**
+- `tank_units.batch_id` → `batches.id` (FK, CASCADE DELETE) — each cylinder belongs to exactly one batch
+
+**Batch ↔ TechnicalReception**
+- `batches.document_number` ↔ `technical_receptions.document_number` (logical) — the reception document is matched to its batch by the shared document number, not a database foreign key
+
+**TankUnit → CatalogProduct**
+- `tank_units.product_id` → `catalog_products.id` (FK, nullable) — optionally links a unit to a registered catalog product
+
+**TankUnit → InventoryMovement**
+- `inventory_movements.tank_unit_id` → `tank_units.id` (FK, CASCADE DELETE) — all movements for a unit are deleted when the unit is deleted
+
+**InventoryMovement → WarehouseArea (×2)**
+- `inventory_movements.from_area_id` → `warehouse_areas.id` (FK, nullable)
+- `inventory_movements.to_area_id` → `warehouse_areas.id` (FK, nullable)
+
+**InventoryMovement → Batch**
+- `inventory_movements.batch_id` → `batches.id` (FK, SET NULL ON DELETE)
+
+**Dispatch → Client**
+- `dispatches.client_id` → `clients.id` (FK, SET NULL ON DELETE) — preserves historical dispatch records when a client is removed
+
+**Dispatch → DispatchLine → TankUnit**
+- `dispatch_lines.dispatch_id` → `dispatches.id` (FK, CASCADE DELETE)
+- `dispatch_lines.tank_unit_id` → `tank_units.id` (FK, RESTRICT DELETE) — a cylinder cannot be deleted while it is referenced in a dispatch line
+
+**TechnicalReception → TechnicalReceptionItem**
+- `technical_reception_items.technical_reception_id` → `technical_receptions.id` (FK, CASCADE DELETE)
+
+**TankTechnicalReview → TankUnit**
+- `tank_technical_reviews.tank_unit_id` → `tank_units.id` (FK, CASCADE DELETE)
+
+**TankTechnicalReview → TechnicalReception**
+- `tank_technical_reviews.technical_reception_id` → `technical_receptions.id` (FK, SET NULL ON DELETE)

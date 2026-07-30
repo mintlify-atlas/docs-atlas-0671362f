@@ -1,0 +1,141 @@
+---
+title: "Client Management: Register and Look Up Dispatch Recipients"
+sidebarTitle: "Clients"
+description: "Manage clients in OxygenDispatch with entity type classification for Entidad, Intradomiciliario IESS, and No afiliado/Apoyo. Look up clients by document number for fast dispatch creation."
+---
+
+Clients in OxygenDispatch represent the hospitals, home-care programmes, and unaffiliated recipients who receive medical gas cylinders. Each client record holds contact and identity information alongside an **entity type** that classifies the recipient for reporting purposes. A dedicated document-lookup endpoint lets the dispatch creation form auto-fill client details from a single document number, reducing data-entry errors during high-volume dispatch sessions.
+
+---
+
+## Client fields
+
+<ParamField body="name" type="string" required>
+  Full legal name or trade name of the client. Maximum 200 characters.
+</ParamField>
+
+<ParamField body="entity_type" type="integer" required>
+  Classification of the recipient. Accepted values:
+
+  | Value | Constant | Label |
+  |-------|----------|-------|
+  | `1` | `ENTIDAD` | Entidad |
+  | `2` | `INTRADOMICILIARIO_IESS` | Intradomiciliario IESS |
+  | `3` | `NO_AFILIADO_APOYO` | No afiliado / Apoyo |
+</ParamField>
+
+<ParamField body="document" type="string" optional>
+  Identity or RUC document number used to identify the client. Maximum 50 characters. This is the value used by the document-lookup endpoint — clients without a document number are excluded from the dispatch create form's client selector.
+</ParamField>
+
+<ParamField body="phone" type="string" optional>
+  Contact phone number. Maximum 50 characters.
+</ParamField>
+
+<ParamField body="email" type="string" optional>
+  Contact email address. Must be a valid email format. Maximum 120 characters.
+</ParamField>
+
+<ParamField body="address" type="string" optional>
+  Physical delivery address. Maximum 255 characters.
+</ParamField>
+
+---
+
+## Entity types
+
+Entity types are defined by the `App\Enums\EntityType` backed enum and control how a dispatch recipient is classified:
+
+```php
+enum EntityType: int
+{
+    case ENTIDAD             = 1;   // 'Entidad'
+    case INTRADOMICILIARIO_IESS = 2; // 'Intradomiciliario IESS'
+    case NO_AFILIADO_APOYO  = 3;   // 'No afiliado / Apoyo'
+}
+```
+
+**Entidad (1)** — Institutional clients such as hospitals, clinics, or government bodies that receive cylinders under a formal supply agreement.
+
+**Intradomiciliario IESS (2)** — Patients enrolled in the IESS (Instituto Ecuatoriano de Seguridad Social) home-care programme who receive cylinders at their residence.
+
+**No afiliado / Apoyo (3)** — Recipients who do not hold IESS affiliation or who receive cylinders under a support or humanitarian arrangement.
+
+At the time a dispatch is created, the client's current `entity_type` value is **copied** onto the `dispatches.entity_type` column. This means historical dispatch reports reflect the classification that was in effect at dispatch time, even if the client's entity type is later changed. The same three values are used as filter criteria in monthly dispatch volume reports broken down by recipient category.
+
+---
+
+## Creating and editing clients
+
+| Action | Method | Route |
+|--------|--------|-------|
+| List all clients | `GET` | `/clients` |
+| Show create form | `GET` | `/clients/create` |
+| Save new client | `POST` | `/clients` |
+| Show edit form | `GET` | `/clients/{client}/edit` |
+| Save updates | `PUT` | `/clients/{client}` |
+| Delete client | `DELETE` | `/clients/{client}` |
+
+Both the `store` and `update` actions validate the same set of fields described in [Client fields](#client-fields) above. A successful create redirects to the client list with a `success` flash message; a successful update does the same.
+
+Deleting a client sets `dispatches.client_id` to `NULL` on all related dispatch records (null-on-delete foreign key constraint) rather than blocking the deletion.
+
+---
+
+## Filtering the client list
+
+`GET /clients` accepts three optional query parameters that can be combined freely:
+
+<ParamField query="document" type="string">
+  Partial, case-insensitive match against `clients.document`. For example, `document=1234` matches any client whose document number contains `1234`.
+</ParamField>
+
+<ParamField query="name" type="string">
+  Partial, case-insensitive match against `clients.name`.
+</ParamField>
+
+<ParamField query="entity_type" type="integer">
+  Exact match on the entity type integer value (`1`, `2`, or `3`).
+</ParamField>
+
+Results are paginated at **15 per page**, ordered by most recently created first, and the active filter values are preserved in pagination links via `withQueryString()`. When a search returns no results the view receives a `searchStatus = 'error'` flag and the message `"No se encontraron clientes con esos filtros."`.
+
+---
+
+## Client lookup by document
+
+The dispatch creation form supports a fast-fill flow: when a user types a document number, the UI can call this endpoint to retrieve the matching client without navigating away.
+
+**Endpoint:** `GET /clients/find-by-document?document={value}`
+
+The `document` parameter is required (string, maximum 50 characters). The lookup performs an **exact** match against `clients.document`.
+
+**Responses:**
+
+```json
+// Client found — HTTP 200
+{
+  "found": true,
+  "client": {
+    "id": 1,
+    "name": "Hospital Central",
+    "document": "1234567890"
+  }
+}
+```
+
+```json
+// Client not found — HTTP 404
+{
+  "found": false,
+  "message": "Ese cliente no existe, primero regístralo."
+}
+```
+
+Only the `id`, `name`, and `document` fields are returned; the dispatch form uses the `id` to populate the hidden `client_id` input and displays `name` as a confirmation label to the operator.
+
+---
+
+<Note>
+  Dispatches can be created without specifying a client — `client_id` is nullable on the `dispatches` table. When no client is linked, the dispatch's `entity_type` is set to `NO_AFILIADO_APOYO` (3) because the client object resolves to `null` and `null?->entity_type?->value` returns `null`, which the controller leaves unset; the column default handles the fallback at the application level. This allows ad-hoc or emergency dispatches to be recorded immediately and attributed to a client retrospectively if needed.
+</Note>

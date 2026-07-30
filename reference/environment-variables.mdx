@@ -1,0 +1,157 @@
+---
+title: "Environment Variables Reference for OxygenDispatch"
+sidebarTitle: "Environment Variables"
+description: "All environment variables used by OxygenDispatch — application, database, session, queue, mail, and storage settings with required/optional status and default values."
+---
+
+Every configurable aspect of OxygenDispatch is driven by environment variables read from the `.env` file at the project root. Laravel never reads `.env` in production from a committed file — instead, set these variables through your hosting platform's environment dashboard, a secrets manager, or a deployment pipeline. To bootstrap a new local environment, copy `.env.example` to `.env` and then fill in the values described below.
+
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+---
+
+## Application
+
+These variables control the core identity and behaviour of the Laravel application layer.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `APP_NAME` | Yes | `Laravel` | Application name shown in the UI, browser tab, and notification subjects. Set to `OxygenDispatch`. |
+| `APP_ENV` | Yes | `production` | Runtime environment. Use `local` during development and `production` on live servers. |
+| `APP_KEY` | **Yes** | _(none)_ | 32-byte AES-256-CBC encryption key. Must be set before running migrations or starting the server. Generate with `php artisan key:generate`. |
+| `APP_DEBUG` | No | `false` | When `true`, Laravel renders full stack traces on errors. Always set to `false` in production. |
+| `APP_URL` | Yes | `http://localhost` | Canonical base URL used to build absolute URLs in queued jobs, PDF links, and email notifications. |
+| `APP_TIMEZONE` | No | `UTC` | PHP timezone for date/time functions. Hardcoded to `UTC` in `config/app.php`; override in the config file directly if needed. |
+| `APP_LOCALE` | No | `en` | Default locale for Laravel's translation system. Set to `es` for Spanish-language interfaces. |
+| `APP_FALLBACK_LOCALE` | No | `en` | Locale used when a translation key is missing in `APP_LOCALE`. |
+| `APP_PREVIOUS_KEYS` | No | _(none)_ | Comma-separated list of old `APP_KEY` values for key rotation. Allows decrypting data encrypted under a previous key. |
+| `APP_MAINTENANCE_DRIVER` | No | `file` | Driver for maintenance-mode state: `file` or `cache`. |
+
+---
+
+## Database
+
+OxygenDispatch supports SQLite (default for local development), MySQL 8+, MariaDB, and PostgreSQL. Switch the driver by changing `DB_CONNECTION`; the host/port/credentials variables are only required for server-based drivers.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DB_CONNECTION` | Yes | `sqlite` | Database driver. Accepted values: `sqlite`, `mysql`, `mariadb`, `pgsql`. |
+| `DB_HOST` | MySQL / MariaDB / pgsql | `127.0.0.1` | Hostname or IP address of the database server. |
+| `DB_PORT` | MySQL / MariaDB | `3306` | TCP port. PostgreSQL default is `5432`. |
+| `DB_DATABASE` | Yes | `database.sqlite` | Database name, or the full path to the SQLite file when using `sqlite`. |
+| `DB_USERNAME` | MySQL / MariaDB / pgsql | `root` | Database user with at least DDL and DML privileges on `DB_DATABASE`. |
+| `DB_PASSWORD` | MySQL / MariaDB / pgsql | _(empty)_ | Password for `DB_USERNAME`. |
+| `DB_URL` | No | _(none)_ | Full DSN URL. When set, overrides the individual `DB_*` variables. |
+| `DB_FOREIGN_KEYS` | No | `true` | Enforces foreign-key constraints in SQLite. Leave enabled. |
+
+---
+
+## Session
+
+Sessions are stored in the `sessions` database table by default. No Redis or Memcached service is required out of the box.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SESSION_DRIVER` | No | `database` | Storage backend. Options: `database`, `file`, `cookie`, `redis`, `array`. |
+| `SESSION_LIFETIME` | No | `120` | Minutes of inactivity before a session expires. |
+| `SESSION_ENCRYPT` | No | `false` | Encrypt the session payload at rest using `APP_KEY`. |
+| `SESSION_SECURE_COOKIE` | No | _(null)_ | When `true`, the session cookie is only sent over HTTPS. Recommended for production. |
+| `SESSION_SAME_SITE` | No | `lax` | SameSite policy for the session cookie: `lax`, `strict`, or `none`. |
+
+---
+
+## Queue
+
+OxygenDispatch uses the `database` queue driver by default — dispatched jobs are stored in the `jobs` table and processed by the worker started with `composer dev` or `php artisan queue:listen`.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `QUEUE_CONNECTION` | No | `database` | Queue driver. Options: `sync`, `database`, `redis`. Use `sync` for simple single-server setups where background processing is not needed. |
+
+---
+
+## Cache
+
+The cache layer defaults to the `database` driver, backed by the `cache` table.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `CACHE_STORE` | No | `database` | Default cache store. Options: `database`, `file`, `array`, `redis`. |
+| `CACHE_PREFIX` | No | `{app-name}-cache-` | String prepended to all cache keys. Automatically derived from `APP_NAME` if not set. Useful when multiple applications share the same cache backend. |
+
+---
+
+## Mail
+
+Mail is not required for core inventory and dispatch workflows. The default mailer is `log`, which writes outgoing mail to `storage/logs/laravel.log` so you can inspect messages in development without a real SMTP server.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MAIL_MAILER` | No | `log` | Mail transport driver: `log`, `smtp`, `sendmail`, `ses`, `postmark`, `resend`. |
+| `MAIL_HOST` | SMTP only | `127.0.0.1` | SMTP server hostname. |
+| `MAIL_PORT` | SMTP only | `2525` | SMTP port. Common values: `587` (STARTTLS), `465` (SSL), `25` (unencrypted). |
+| `MAIL_USERNAME` | SMTP only | _(none)_ | SMTP authentication username. |
+| `MAIL_PASSWORD` | SMTP only | _(none)_ | SMTP authentication password. |
+| `MAIL_SCHEME` | No | _(none)_ | Explicit transport scheme for SMTP: `tls` or `ssl`. |
+| `MAIL_FROM_ADDRESS` | No | `hello@example.com` | The "From" address on all outgoing mail. |
+| `MAIL_FROM_NAME` | No | `APP_NAME` | The "From" display name on all outgoing mail. |
+
+---
+
+## Filesystem
+
+OxygenDispatch uses the `public` disk to store signed technical-reception PDFs at `storage/app/public/technical-receptions/signed/`. The `local` disk is available for private files. S3-compatible storage is available by setting `FILESYSTEM_DISK=s3` and providing AWS credentials.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `FILESYSTEM_DISK` | No | `local` | Default storage disk. Options: `local`, `public`, `s3`. |
+| `AWS_ACCESS_KEY_ID` | S3 only | _(none)_ | AWS IAM access key ID. |
+| `AWS_SECRET_ACCESS_KEY` | S3 only | _(none)_ | AWS IAM secret access key. |
+| `AWS_DEFAULT_REGION` | S3 only | `us-east-1` | AWS region where the S3 bucket is located. |
+| `AWS_BUCKET` | S3 only | _(none)_ | S3 bucket name used for file storage. |
+| `AWS_URL` | No | _(none)_ | Custom CDN or endpoint URL to prefix generated file URLs. |
+| `AWS_ENDPOINT` | No | _(none)_ | Override the S3 API endpoint; useful for S3-compatible providers like MinIO. |
+
+---
+
+## Logging
+
+Laravel uses a `stack` channel by default, which writes to `storage/logs/laravel.log`.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `LOG_CHANNEL` | No | `stack` | Default log channel: `stack`, `single`, `daily`, `stderr`, `syslog`. |
+| `LOG_LEVEL` | No | `debug` | Minimum severity to log: `debug`, `info`, `notice`, `warning`, `error`, `critical`. |
+| `LOG_STACK` | No | `single` | Comma-separated channel names used when `LOG_CHANNEL=stack`. |
+| `LOG_DAILY_DAYS` | No | `14` | Number of daily log files to retain when using the `daily` channel. |
+
+---
+
+<Warning>
+`APP_KEY` must be set **before** running `php artisan migrate` or starting the application server. Without it, Laravel cannot encrypt session data, cookies, or any model values that use the `Encrypted` cast. Running `php artisan key:generate` writes a valid key into your `.env` file automatically.
+</Warning>
+
+<Note>
+In production, always set `APP_DEBUG=false` and `APP_ENV=production`. Debug mode exposes stack traces, environment variables, and database queries to anyone who triggers an error — a serious security risk on a live server. Also ensure the `storage/` and `bootstrap/cache/` directories are writable by the web-server process.
+</Note>
+
+<Tip>
+The minimal `.env` configuration needed to run OxygenDispatch locally with SQLite is:
+
+```ini
+APP_NAME=OxygenDispatch
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+
+DB_CONNECTION=sqlite
+
+QUEUE_CONNECTION=database
+```
+
+After saving this file, run `php artisan key:generate` to fill in `APP_KEY`, then `php artisan migrate` to create the database schema.
+</Tip>

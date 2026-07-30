@@ -1,0 +1,217 @@
+---
+title: "Application Configuration: Laravel Settings for OxygenDispatch"
+sidebarTitle: "Configuration"
+description: "Configuration reference for OxygenDispatch — application settings, database connection, queue driver, file storage, and PDF generation configuration."
+---
+
+OxygenDispatch is built on Laravel 12 and follows the framework's standard configuration model: every setting lives in a PHP file under the `config/` directory, and each value is driven by an environment variable read at runtime via `env()`. You set those variables in the `.env` file at the project root. This page documents every configuration area you need to understand before deploying or customising OxygenDispatch.
+
+---
+
+## Core Application Config
+
+The primary application settings are controlled by `config/app.php`. All values have a reasonable framework default, but the variables below must be explicitly set for each deployment.
+
+| Setting | Config key | Env variable | Default | Notes |
+|---|---|---|---|---|
+| Application name | `app.name` | `APP_NAME` | `Laravel` | Shown in the UI, email subjects, and browser titles |
+| Environment | `app.env` | `APP_ENV` | `production` | Use `local` during development, `production` on live servers |
+| Encryption key | `app.key` | `APP_KEY` | _(none)_ | 32-byte AES-256-CBC key; **required** before first run |
+| Debug mode | `app.debug` | `APP_DEBUG` | `false` | Set `true` locally to see stack traces; always `false` in production |
+| Base URL | `app.url` | `APP_URL` | `http://localhost` | Used to generate absolute URLs in queued jobs and email links |
+| Timezone | `app.timezone` | — | `UTC` | Hardcoded to `UTC` in `config/app.php`; change in the file if needed |
+| Locale | `app.locale` | `APP_LOCALE` | `en` | Drives translation lookups; set to `es` for Spanish interfaces |
+
+Generate the application key with Artisan before running migrations or starting the server:
+
+```bash
+php artisan key:generate
+```
+
+---
+
+## Database
+
+OxygenDispatch reads database configuration from `config/database.php`. The default connection is `sqlite`, which requires no external service and is ideal for local development. Switch to `mysql` or `pgsql` for production deployments.
+
+**Supported drivers:** MySQL 8+, MariaDB, PostgreSQL, SQLite.
+
+```ini
+# SQLite (development default — no additional vars needed)
+DB_CONNECTION=sqlite
+
+# MySQL (production)
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=oxygendispatch
+DB_USERNAME=oxygen_user
+DB_PASSWORD=secret
+```
+
+For MySQL the charset defaults to `utf8mb4` with the `utf8mb4_unicode_ci` collation, which correctly handles Spanish accented characters in cylinder and patient records.
+
+<Tip>
+When using SQLite locally, the `composer setup` script automatically creates `database/database.sqlite` via `touch`. You do not need to create the file manually.
+</Tip>
+
+---
+
+## Queue
+
+OxygenDispatch relies on Laravel's queue system for background work. The default connection is `database`, meaning jobs are stored in the `jobs` table — no external broker is required.
+
+The `composer dev` script starts a queue worker automatically alongside the development server:
+
+```bash
+# What composer dev runs under the hood (among other processes)
+php artisan queue:listen --tries=1 --timeout=0
+```
+
+For production, use a proper supervisor such as [Laravel Horizon](https://laravel.com/docs/horizon) or a `supervisord` config so the worker restarts on failure.
+
+| `QUEUE_CONNECTION` value | When to use |
+|---|---|
+| `database` | Default; jobs stored in the `jobs` table — sufficient for most deployments |
+| `sync` | Executes jobs immediately in the same request; useful for simple single-server setups or testing |
+| `redis` | High-throughput production deployments with Redis available |
+
+---
+
+## File Storage
+
+OxygenDispatch uses the **`public` disk** (`config/filesystems.php`) to persist signed PDF uploads. The `public` disk writes to `storage/app/public/` and makes files accessible via the web server through a symbolic link.
+
+Signed technical-reception PDFs are stored at:
+
+```
+storage/app/public/technical-receptions/signed/
+```
+
+After deployment (or after cloning the repository), create the symbolic link so files are reachable at `public/storage/`:
+
+```bash
+php artisan storage:link
+```
+
+This maps `public/storage` → `storage/app/public`. Once the link is in place, a stored file such as `technical-receptions/signed/rec-42.pdf` is accessible at:
+
+```
+https://your-domain.com/storage/technical-receptions/signed/rec-42.pdf
+```
+
+<Note>
+The `storage/` directory and its subdirectories must be writable by the web-server process. On Linux, `chmod -R 775 storage bootstrap/cache` with the correct group ownership is the standard fix.
+</Note>
+
+---
+
+## PDF Generation
+
+OxygenDispatch generates dispatch sheets and technical-reception documents using [`barryvdh/laravel-dompdf`](https://github.com/barryvdh/laravel-dompdf) `^3.1`, which is listed in `composer.json`. PDFs are rendered in-memory from Blade views and either streamed to the browser or returned as a download — no temporary files are written to disk unless you explicitly save them to the `public` disk.
+
+No additional configuration is required to get started. If you need to adjust DomPDF internals — for example, to enable full Unicode support for Spanish accented characters in generated PDFs — publish and edit `config/dompdf.php`:
+
+```bash
+php artisan vendor:publish --provider="Barryvdh\DomPDF\ServiceProvider"
+```
+
+Relevant options in `config/dompdf.php`:
+
+```php
+'options' => [
+    // Enable when PDF text contains accented characters (á, é, ó, ú, ñ, etc.)
+    'isUnicode' => true,
+
+    // Point to a font directory that includes the fonts your views use
+    'font_dir' => storage_path('fonts'),
+],
+```
+
+---
+
+## Session
+
+Session settings live in `config/session.php`. The default driver is `database`, which stores session data in the `sessions` table created by Laravel's session migration.
+
+| Env variable | Default | Description |
+|---|---|---|
+| `SESSION_DRIVER` | `database` | Storage backend: `database`, `file`, `cookie`, `redis` |
+| `SESSION_LIFETIME` | `120` | Minutes of inactivity before a session expires |
+| `SESSION_ENCRYPT` | `false` | Encrypt session payload at rest using `APP_KEY` |
+
+<Tip>
+During automated testing, `phpunit.xml` overrides `SESSION_DRIVER` to `array` so tests never touch the database session table.
+</Tip>
+
+---
+
+## Build Tools
+
+OxygenDispatch compiles its front-end assets with [Vite](https://vitejs.dev/) via `laravel-vite-plugin`, and styles are written in [Tailwind CSS](https://tailwindcss.com/) v3 processed through PostCSS.
+
+**Entry points** (`vite.config.js`):
+
+```js
+laravel({
+    input: ['resources/css/app.css', 'resources/js/app.js'],
+    refresh: true,
+})
+```
+
+**Tailwind content sources** (`tailwind.config.js`) — Vite scans these paths for class names to include in the production CSS bundle:
+
+- `resources/views/**/*.blade.php`
+- `resources/js/**/*.js` / `**/*.ts`
+- `resources/**/*.vue`
+- Laravel's built-in pagination views
+
+**PostCSS plugins** (`postcss.config.js`): `tailwindcss` and `autoprefixer`.
+
+**Available npm scripts:**
+
+```bash
+# Start Vite dev server with Hot Module Replacement
+npm run dev
+
+# Compile and minify assets for production
+npm run build
+```
+
+In day-to-day development you don't need to run `npm run dev` directly — the `composer dev` script starts it alongside the PHP server, queue worker, and Pail log viewer as a single concurrent process group.
+
+---
+
+## Testing
+
+OxygenDispatch uses **PHPUnit 11** (`phpunit/phpunit ^11.5.3`), configured in `phpunit.xml`. Two test suites are defined:
+
+| Suite | Directory |
+|---|---|
+| Unit | `tests/Unit` |
+| Feature | `tests/Feature` |
+
+The `phpunit.xml` file sets the following environment overrides for the test run so tests are fast and isolated:
+
+| Variable | Test value | Reason |
+|---|---|---|
+| `APP_ENV` | `testing` | Activates Laravel's testing mode |
+| `DB_CONNECTION` | `sqlite` | Uses SQLite |
+| `DB_DATABASE` | `:memory:` | In-memory database — wiped after every run |
+| `CACHE_STORE` | `array` | Non-persistent cache |
+| `QUEUE_CONNECTION` | `sync` | Jobs execute synchronously; no worker needed |
+| `SESSION_DRIVER` | `array` | Non-persistent session |
+| `MAIL_MAILER` | `array` | Captures sent mail without sending |
+
+Run the full test suite using the Composer script, which clears the config cache first:
+
+```bash
+composer test
+```
+
+This is equivalent to:
+
+```bash
+php artisan config:clear
+php artisan test
+```

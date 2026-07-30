@@ -1,47 +1,157 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get started with OxygenDispatch in 5 minutes"
+sidebarTitle: "Quickstart"
+description: "Clone, configure, and run OxygenDispatch locally. Follow this guide to register your first batch and dispatch oxygen cylinders."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+This guide walks you through getting a fully functional local instance of OxygenDispatch running on your machine and completing the end-to-end workflow — from registering a catalog entry and creating a batch all the way to dispatching approved cylinders to a client. The entire process takes about five minutes on a machine that already has PHP and Node installed.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+<Note>
+  **Prerequisites** — make sure the following are available on your machine before you begin:
+  - PHP **8.2 or higher** with the extensions: `mbstring`, `pdo`, `openssl`, `tokenizer`, `xml`, `ctype`, `json`, `bcmath`, `fileinfo`
+  - **Composer** (latest stable)
+  - **Node.js 18+** and npm
+  - **MySQL 8+** (recommended for parity with production) or SQLite (zero-config for local dev)
+</Note>
 
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Set up the project
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository">
+    Clone the OxygenDispatch repository from GitHub and change into the project directory.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/Janblack07/OxygenDispatch.git
+    cd OxygenDispatch
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Install dependencies">
+    Install both PHP and JavaScript dependencies.
+
+    <CodeGroup>
+      ```bash PHP dependencies
+      composer install
+      ```
+
+      ```bash Node dependencies
+      npm install
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure the environment">
+    Copy the example environment file and generate your application key. Then open `.env` and set your database connection values.
 
     ```bash
-    your-cli init
+    cp .env.example .env
+    php artisan key:generate
+    ```
+
+    Edit `.env` and update the database block to match your local setup:
+
+    ```ini .env (MySQL example)
+    APP_NAME=OxygenDispatch
+    APP_ENV=local
+    APP_URL=http://localhost:8000
+
+    DB_CONNECTION=mysql
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=oxygen_dispatch
+    DB_USERNAME=root
+    DB_PASSWORD=secret
+    ```
+
+    For a zero-config SQLite setup, use:
+
+    ```ini .env (SQLite)
+    DB_CONNECTION=sqlite
+    # DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD can be left blank
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Run migrations">
+    Create all database tables — users, batches, tank units, technical receptions, dispatches, and more.
 
     ```bash
-    your-cli start
+    php artisan migrate
     ```
+  </Step>
+
+  <Step title="Build frontend assets">
+    Compile Tailwind CSS and all JavaScript bundles for production use.
+
+    ```bash
+    npm run build
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    The `composer dev` script uses `concurrently` to spin up four processes in a single terminal: the HTTP server, the queue worker, the Pail log viewer, and the Vite hot-reload watcher.
+
+    ```bash
+    composer dev
+    ```
+
+    This executes the following processes in parallel:
+
+    | Process | Command |
+    |---|---|
+    | HTTP server | `php artisan serve` |
+    | Queue worker | `php artisan queue:listen --tries=1 --timeout=0` |
+    | Log viewer | `php artisan pail --timeout=0` |
+    | Vite dev server | `npm run dev` |
+
+    Open [http://localhost:8000](http://localhost:8000) in your browser. You will be redirected to the login page.
+  </Step>
+</Steps>
+
+## Your first workflow
+
+Once the application is running and you have logged in, follow these steps to register inventory and complete your first dispatch.
+
+<Steps>
+  <Step title="Log in and open the dashboard">
+    Navigate to [http://localhost:8000](http://localhost:8000). Log in with your credentials. The dashboard displays real-time counts of available cylinders, dispatches today, cylinders in quarantine, and more — all sourced live from the database.
+  </Step>
+
+  <Step title="Create catalog entries">
+    The system requires at least one gas type and one cylinder capacity before you can register a batch.
+
+    - Go to `/catalog/gas-types` and create a gas type (for example: **Oxygen Medical Grade**).
+    - Go to `/catalog/capacities` and create a capacity (for example: **10 L**).
+
+    You can also configure warehouse areas at `/catalog/warehouse-areas` and technical statuses at `/catalog/technical-statuses` to match your facility's layout.
+  </Step>
+
+  <Step title="Create a batch">
+    Navigate to `/batches/create`. Fill in the batch number, select the gas type and capacity you just created, and provide supplier details (name, supplier code, voucher type and number, voucher date, sanitary registry, manufactured and expiry dates). Save the batch.
+  </Step>
+
+  <Step title="Generate tank units">
+    Open the batch you created and click **Generate Tanks**. Enter the number of cylinder units to create. The system will generate individual `tank_unit` records, each with a unique serial number derived from the batch, with their status set to **available** (status `1`) and assigned to the default warehouse area.
+  </Step>
+
+  <Step title="Create a technical reception and review tanks">
+    Navigate to `/technical-receptions/create` and create a reception record linked to your batch's document number. Fill in the supplier, invoice number, remission guide, received quantity, and responsible officer fields.
+
+    Once the reception is saved, open it and go to its **Tank Reviews** section (`/technical-receptions/{id}/tank-reviews`). Process each cylinder — recording the review result as `approved` or `rejected` along with any anomaly type and observation. When all units are reviewed, set the reception's final result to **aprobado**.
+  </Step>
+
+  <Step title="Dispatch approved cylinders to a client">
+    First, create a client at `/clients` if one does not already exist (the system can look up an existing client by document number using the `/clients/find-by-document` endpoint).
+
+    Then navigate to `/dispatches/create` to dispatch cylinders by serial number, or `/dispatches/create-by-quantity` to dispatch a set quantity of available tanks. Select the client, fill in the dispatch document number, remission plate, voucher details, and notes — then submit. The cylinders' status is updated to **dispatched** (status `2`) and an inventory movement record is created automatically.
   </Step>
 </Steps>
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+  Want to skip the manual setup steps? The `composer.json` defines a `setup` script that chains the entire installation sequence in one command: `composer install`, copy `.env.example`, `php artisan key:generate`, `php artisan migrate --force`, `npm install`, and `npm run build`. Just run:
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  ```bash
+  composer setup
+  ```
+
+  This is ideal for onboarding new team members or resetting a development environment quickly.
 </Tip>

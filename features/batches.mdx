@@ -1,0 +1,169 @@
+---
+title: "Batch Management: Register and Track Cylinder Shipments"
+sidebarTitle: "Batches"
+description: "Create and manage incoming shipment batches in OxygenDispatch. Each batch holds supplier info, voucher data, and generates serialized tank units automatically."
+---
+
+Batches are the entry point for all medical gas cylinders in OxygenDispatch. When a supplier delivers a shipment of cylinders, you create a batch to record the event — capturing the supplier identity, voucher documents, sanitary data, and the date cylinders were received. All individual tank units in the system trace back to the batch they arrived in, making batches the root of the full inventory audit trail.
+
+## What is a batch?
+
+A batch represents a single supplier shipment. It is the parent record for every tank unit generated from that delivery. The following data is held at the batch level:
+
+| Field | Description |
+|---|---|
+| `batch_number` | A unique identifier for this shipment (e.g. `LOTE-2026-001`) |
+| `document_number` | The order number, delivery note, or remission document for this shipment |
+| `supplier_name` | The name of the supplying company |
+| `supplier_code` | The supplier's internal or registry code |
+| `voucher_type` | The type of fiscal voucher (e.g. invoice, note) |
+| `voucher_number` | The number printed on the fiscal voucher |
+| `voucher_date` | The date the voucher was issued |
+| `received_at` | The date and time the batch was physically received |
+| `sanitary_registry` | A reference sanitary registry code for this shipment |
+| `manufactured_at` | The manufacture date recorded on the delivery |
+| `expires_at` | The expiry date recorded at the batch level |
+
+A batch may optionally reference a `gas_type` and a `capacity` as referential catalog links. Actual gas type and capacity on individual cylinders are determined by the **product** selected when generating tanks.
+
+## Creating a batch
+
+Submit a `POST /batches` request using the form fields below. All nullable fields are optional — you can register a minimal batch with only `batch_number` and `received_at` and fill in the rest later via `PUT /batches/{batch}`.
+
+<ParamField body="batch_number" type="string" required>
+  A unique human-readable identifier for this batch. Maximum 100 characters. Must not already exist in the `batches` table.
+</ParamField>
+
+<ParamField body="received_at" type="date" required>
+  The date (or date-time) the shipment was received at the facility. Accepts any format parseable by PHP's `strtotime`.
+</ParamField>
+
+<ParamField body="gas_type_id" type="integer">
+  Optional reference to a gas type catalog entry (`gas_types.id`). Used for filtering and reporting at the batch level.
+</ParamField>
+
+<ParamField body="capacity_id" type="integer">
+  Optional reference to a cylinder capacity catalog entry (`cylinder_capacities.id`).
+</ParamField>
+
+<ParamField body="document_number" type="string">
+  The delivery note, order, or remission number. Maximum 100 characters.
+</ParamField>
+
+<ParamField body="supplier_name" type="string">
+  Full legal name of the supplying company. Maximum 200 characters.
+</ParamField>
+
+<ParamField body="supplier_code" type="string">
+  The supplier's internal or government-issued code. Maximum 100 characters.
+</ParamField>
+
+<ParamField body="voucher_type" type="string">
+  Type of fiscal voucher accompanying the shipment (e.g. `Factura`, `Boleta`, `Guía`). Maximum 50 characters.
+</ParamField>
+
+<ParamField body="voucher_number" type="string">
+  The number printed on the fiscal voucher. Maximum 100 characters.
+</ParamField>
+
+<ParamField body="voucher_date" type="date">
+  The date the voucher was issued.
+</ParamField>
+
+<ParamField body="sanitary_registry" type="string">
+  Sanitary registry reference code for this shipment. Maximum 100 characters.
+</ParamField>
+
+<ParamField body="manufactured_at" type="date">
+  Manufacture date as recorded on the delivery documentation.
+</ParamField>
+
+<ParamField body="expires_at" type="date">
+  Batch-level expiry date. Individual tank units each carry their own `expires_at` set at generation time.
+</ParamField>
+
+On success, you are redirected to `GET /batches/{batch}` — the batch detail page.
+
+## Generating tank units
+
+Once a batch is created, you can generate the individual cylinder records that belong to it. Submit a `POST /batches/{batch}/generate-tanks` request to bulk-create serialized tank units.
+
+<ParamField body="quantity" type="integer" required>
+  Number of tanks to generate. Must be between **1** and **5000** inclusive.
+</ParamField>
+
+<ParamField body="product_id" type="integer" required>
+  The catalog product (`catalog_products.id`) each generated tank will be linked to. Gas type and capacity are resolved from the product — not entered separately.
+</ParamField>
+
+<ParamField body="expires_at" type="date" required>
+  Expiry date to assign to every generated tank unit. Must be **today or a future date** and must not exceed **50 years** from today.
+</ParamField>
+
+<ParamField body="serial_prefix" type="string">
+  A short alphanumeric prefix for the serial numbers. Maximum 10 characters. Only letters, digits, hyphens (`-`), and underscores (`_`) are allowed (regex `^[A-Za-z0-9_-]+$`). Defaults to `OXI` if omitted.
+</ParamField>
+
+### Serial number format
+
+Each generated tank receives a serial number composed of the prefix and a zero-padded 6-digit counter, separated by a hyphen:
+
+```
+PREFIX-000001
+PREFIX-000002
+PREFIX-000003
+```
+
+For example, with the default prefix `OXI`:
+
+```
+OXI-000001
+OXI-000002
+OXI-000003
+```
+
+The counter is derived from the highest existing `serial_number` for that prefix in the database, incremented inside a database transaction with `lockForUpdate()` to prevent duplicate serials under concurrent requests.
+
+### Fixed initial state
+
+Regardless of any other data, every tank generated through this endpoint is **always** placed into the following initial state:
+
+| Attribute | Fixed value |
+|---|---|
+| `warehouse_area` | **Recepción** |
+| `technical_status` | **Pendiente** |
+
+These values are resolved by the server at generation time. They cannot be overridden from the form. Each new tank also receives an **ENTRADA** inventory movement automatically.
+
+<Warning>
+  The warehouse area named exactly **"Recepción"** and the technical status named exactly **"Pendiente"** must exist in their respective catalogs before you attempt to generate tanks. If either is missing, the entire batch generation will be aborted and an error message will be returned. Create both entries in the catalog settings before your first intake.
+</Warning>
+
+## Filtering and searching batches
+
+The batch list at `GET /batches` supports the following query string parameters to narrow results. All filters are combinable and are applied with `AND` logic. Results are paginated at 15 per page.
+
+| Parameter | Type | Behaviour |
+|---|---|---|
+| `q` | string | Partial match on `batch_number` OR `document_number` (case-insensitive `LIKE`) |
+| `gas_type_id` | integer | Exact match on the batch's linked gas type |
+| `capacity_id` | integer | Exact match on the batch's linked cylinder capacity |
+
+Example:
+
+```
+GET /batches?q=LOTE-2026&gas_type_id=1
+```
+
+## Batch detail page
+
+`GET /batches/{batch}` loads the full detail view for a single batch, eager-loading all related data. The page displays:
+
+- The batch's gas type and cylinder capacity (from catalog references)
+- All associated **tank units**, each showing:
+  - The linked catalog **product** and its capacity
+  - Current **warehouse area**
+  - Current **technical status**
+- Quick-action forms for generating additional tanks and managing existing units
+
+From this page you can also launch the generate-tanks form for the batch, add more cylinders to an existing batch at any time.

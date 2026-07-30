@@ -1,0 +1,111 @@
+---
+title: "OxygenDispatch: Medical Gas Cylinder Tracking Platform"
+sidebarTitle: "Introduction"
+description: "OxygenDispatch is a Laravel 12 web application for medical gas distributors to manage cylinder inventory, technical receptions, and client dispatches end-to-end."
+---
+
+OxygenDispatch is a purpose-built Laravel 12 web application designed for medical gas distributors who need to track oxygen and other gas cylinders from the moment they arrive at the warehouse through every technical inspection, storage movement, and client delivery. It gives operations teams a single, auditable source of truth for every cylinder unit — replacing error-prone spreadsheets and manual paper logs with a structured, role-protected digital workflow.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Clone the repo, run migrations, and dispatch your first batch of cylinders in under five minutes.
+  </Card>
+  <Card
+    title="Installation"
+    icon="server"
+    href="/installation"
+  >
+    Full server requirements, environment variable reference, and production deployment steps.
+  </Card>
+  <Card
+    title="Tank Lifecycle"
+    icon="rotate"
+    href="/concepts/tank-lifecycle"
+  >
+    Understand how a cylinder moves from batch intake through technical review to dispatch and decommission.
+  </Card>
+  <Card
+    title="Inventory Flow"
+    icon="arrow-right-arrow-left"
+    href="/concepts/inventory-flow"
+  >
+    Explore warehouse areas, inventory movements, and how the system maintains real-time stock counts.
+  </Card>
+</CardGroup>
+
+## What problem it solves
+
+Medical gas distributors handle hundreds or thousands of individual cylinders every month. Each unit must be tracked by serial number, gas type, capacity, sanitary registry, manufacturing date, and expiry date. Before a cylinder can leave the warehouse, it must pass through a formal technical reception — a documented inspection process that verifies documentation compliance, physical condition, and storage suitability, and records the result (approved, rejected, or pending) against the unit.
+
+Without a dedicated system, this process relies on handwritten forms, spreadsheets shared over email, and manual cross-referencing between purchase orders and physical stock. Cylinders get lost in quarantine areas, dispatched before they are approved, or retired without an audit trail. OxygenDispatch closes these gaps by enforcing a strict digital workflow: a cylinder cannot be dispatched unless it exists in the system, belongs to a registered batch, and has passed a technical review tied to an approved technical reception record.
+
+## Core modules
+
+<CardGroup cols={3}>
+  <Card
+    title="Batches"
+    icon="boxes-stacked"
+    href="/features/batches"
+  >
+    Register incoming shipments of cylinders with supplier details, voucher data, and sanitary registry information. Generate individual tank units from a batch in one step.
+  </Card>
+  <Card
+    title="Technical Reception"
+    icon="clipboard-check"
+    href="/features/technical-receptions"
+  >
+    Create a formal reception record linked to a batch document number. Capture supplier, invoice, remission guide, storage conditions, and responsible officer details.
+  </Card>
+  <Card
+    title="Tank Reviews"
+    icon="magnifying-glass"
+    href="/features/tank-reviews"
+  >
+    Inspect individual cylinders within a reception. Record the review result (approved or rejected), anomaly type, and observation notes. Approved tanks become available for dispatch.
+  </Card>
+  <Card
+    title="Dispatches"
+    icon="truck"
+    href="/features/dispatches"
+  >
+    Assign approved cylinders to a client with a timestamped dispatch record. Supports dispatch by individual serial number or by quantity, plus remission and voucher reference fields.
+  </Card>
+  <Card
+    title="Monthly Reports"
+    icon="chart-bar"
+    href="/features/monthly-reports"
+  >
+    Generate monthly entry and exit PDF reports using DomPDF. Download signed technical reception sheets and share them with suppliers or regulatory auditors.
+  </Card>
+  <Card
+    title="User Management"
+    icon="users"
+    href="/features/user-management"
+  >
+    Manage staff accounts with role-based access control. The roles PROGRAMADOR and ADMINISTRADOR can create, edit, activate, or deactivate users and reset passwords.
+  </Card>
+</CardGroup>
+
+## Technology stack
+
+OxygenDispatch is built on a modern, stable PHP stack that is easy to host on any Linux server with a standard LEMP or LAMP setup.
+
+| Layer | Technology |
+|---|---|
+| Framework | Laravel 12 |
+| Language | PHP 8.2+ |
+| Database | MySQL 8+ or SQLite (dev) |
+| Frontend templating | Blade templates |
+| CSS | Tailwind CSS (via Vite) |
+| Build tool | Vite |
+| PDF generation | barryvdh/laravel-dompdf 3.x |
+| Auth scaffolding | Laravel Breeze |
+| Queue / logs | Laravel Queue + Laravel Pail |
+
+<Note>
+  All application routes — dashboards, catalogs, batches, tanks, dispatches, reports, and technical receptions — are protected by the `auth` middleware and require an authenticated session. User management routes are additionally guarded by a role middleware that restricts access to users with the `PROGRAMADOR` or `ADMINISTRADOR` role. Unauthenticated visitors are redirected to the login page.
+</Note>

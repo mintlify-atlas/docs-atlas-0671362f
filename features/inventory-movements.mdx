@@ -1,0 +1,116 @@
+---
+title: "Inventory Movements: Full Audit Trail for Every Tank"
+sidebarTitle: "Inventory Movements"
+description: "OxygenDispatch records every tank action — intake, transfer, dispatch, and status change — as an inventory movement with timestamp, user, and reference document."
+---
+
+Every action performed on a tank unit in OxygenDispatch — from the moment it enters the facility as part of a batch to the moment it is dispatched or decommissioned — is recorded as an immutable inventory movement. These records are never edited or deleted. Together they form a complete, time-ordered audit trail that answers the questions: *where was this cylinder, who moved it, and when?* The movement log is accessible both system-wide and per individual tank.
+
+## Viewing the movement log
+
+`GET /inventory/movements` renders the global inventory movement log, ordered by `occurred_at` descending (most recent first) and paginated at **25 records per page**. Each entry shows the movement type, timestamp, the tank serial it belongs to, the originating and destination areas, the reference document, and the user who performed the action.
+
+The following query string filters are supported:
+
+| Parameter | Type | Behaviour |
+|---|---|---|
+| `type` | integer | Exact match on movement type value: `1` ENTRADA, `2` TRASLADO, `3` SALIDA, `4` CAMBIO_ESTADO_TECNICO |
+| `area_id` | integer | Matches movements where the given area appears as either `from_area_id` OR `to_area_id` |
+| `serial` | string | Partial match on the serial of the linked tank unit |
+
+Example — list all outgoing dispatch movements involving a specific warehouse area:
+
+```
+GET /inventory/movements?type=3&area_id=4
+```
+
+## Movement record fields
+
+Each inventory movement row contains the following fields:
+
+<ParamField body="type" type="MovementType enum (integer)">
+  The category of action that created this movement. Backed by a PHP integer enum:
+
+  | Enum case | Value | Label |
+  |---|---|---|
+  | `ENTRADA` | `1` | Entrada — initial intake of a new tank from a batch |
+  | `TRASLADO` | `2` | Traslado — physical transfer between warehouse areas |
+  | `SALIDA` | `3` | Salida — dispatch/outgoing delivery to a customer or site |
+  | `CAMBIO_ESTADO_TECNICO` | `4` | Cambio estado técnico — technical status or lifecycle change |
+</ParamField>
+
+<ParamField body="occurred_at" type="datetime">
+  The exact timestamp when the action was performed. Set to `now()` at the time the movement is created. This field is always present.
+</ParamField>
+
+<ParamField body="tank_unit_id" type="UUID">
+  The UUID of the `TankUnit` this movement belongs to. Foreign key to `tank_units.id` with cascade delete.
+</ParamField>
+
+<ParamField body="from_area_id" type="integer | null">
+  The warehouse area the tank was in **before** the action. Nullable — `null` for `ENTRADA` movements where the tank has no prior location.
+</ParamField>
+
+<ParamField body="to_area_id" type="integer | null">
+  The warehouse area the tank was moved **to**. Nullable — `null` for `SALIDA` movements where the tank leaves the system entirely.
+</ParamField>
+
+<ParamField body="batch_id" type="integer | null">
+  The batch the tank belongs to. Nullable (set to `NULL` if the parent batch is deleted, via `nullOnDelete`).
+</ParamField>
+
+<ParamField body="reference_document" type="string | null">
+  A document reference linking this movement to a source record. For `ENTRADA` movements this is the batch's `document_number`; for `SALIDA` movements this is the dispatch order's `document_number`. Maximum 150 characters.
+</ParamField>
+
+<ParamField body="performed_by_user_email" type="string">
+  The email address of the authenticated user who triggered the action. Captured from `$request->user()->email` at the time of the action.
+</ParamField>
+
+<ParamField body="notes" type="string | null">
+  Free-text contextual notes. Content varies by movement type — see the table below for what is recorded in each case. Maximum 500 characters.
+</ParamField>
+
+<Note>
+  The `inventory_movements` table has **no `updated_at` column** — the model sets `public $timestamps = false`. Only `occurred_at` is recorded, and it is never changed after creation.
+</Note>
+
+## When movements are created
+
+Movements are created automatically by the application whenever a qualifying action takes place. The table below describes each trigger, the movement type recorded, and the notable field values:
+
+| Action | `type` | Notable field values |
+|---|---|---|
+| Tank generated from a batch | `ENTRADA` (1) | `from_area_id = null`, `to_area_id = Recepción`, `reference_document = batch.document_number`, notes include the batch number and cylinder expiry date |
+| Tank transferred between areas | `TRASLADO` (2) | `from_area_id` = previous area, `to_area_id` = new area |
+| Tank dispatched to a customer | `SALIDA` (3) | `from_area_id` = area at time of dispatch, `to_area_id = null`, `reference_document` = dispatch order `document_number` |
+| Technical status changed manually | `CAMBIO_ESTADO_TECNICO` (4) | Notes describe the old → new status |
+| Tank approved during technical review | `CAMBIO_ESTADO_TECNICO` (4) | `from_area_id = Recepción`, `to_area_id = Productos aprobados` |
+| Tank rejected during technical review | `CAMBIO_ESTADO_TECNICO` (4) | `to_area_id = Rechazos/devoluciones` |
+| Tank decommissioned | `CAMBIO_ESTADO_TECNICO` (4) | Notes always prefixed with `[BAJA]`; tank `status` set to `BAJA` |
+
+### ENTRADA notes format
+
+When tanks are generated via `POST /batches/{batch}/generate-tanks`, each tank's ENTRADA movement is created with a structured note:
+
+```
+Ingreso inicial desde lote LOTE-2026-001. Tanque pendiente de revisión técnica. Vencimiento: 31/12/2028.
+```
+
+The date in the notes is formatted as `dd/mm/YYYY` using `Carbon`.
+
+### BAJA notes format
+
+When a tank is decommissioned via `POST /tanks/{tank}/decommission`, the notes field is always structured as:
+
+```
+[BAJA] <optional user-supplied notes>
+```
+
+If no notes are supplied, the field is stored as the bare string `[BAJA]`.
+
+## Per-tank movement history
+
+<Tip>
+  Each individual tank's movement history is also directly accessible from the tank detail page at `GET /tanks/{tank}`. The detail view loads the **last 50 movements** for that tank, ordered by `occurred_at` descending, with `fromArea` and `toArea` relations eager-loaded so you can see area names directly without additional queries.
+</Tip>

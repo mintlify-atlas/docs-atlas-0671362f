@@ -1,0 +1,148 @@
+---
+title: "PHP Enums Reference: Status, Role, and Type Values"
+sidebarTitle: "Enums"
+description: "Reference for all PHP backed enums in OxygenDispatch — TankStatus, MovementType, AppRole, and EntityType — with their integer/string values and labels."
+---
+
+OxygenDispatch uses PHP 8.1 backed enums to represent every discrete status, role, and classification in the system. All enums live under the `App\Enums` namespace and are referenced via Eloquent casts in the relevant models — meaning you always work with typed enum objects in application code, never raw integers or strings. Each integer-backed enum exposes a `label()` method that returns a human-readable Spanish string suitable for display in the UI.
+
+---
+
+## TankStatus
+
+Tracks the operational lifecycle state of a single `TankUnit`. Every cylinder is in exactly one of these three states at all times. The value is stored as a `tinyint` in the `tank_units.status` column and automatically cast to this enum.
+
+```php
+enum TankStatus: int
+{
+    case DISPONIBLE = 1;
+    case DESPACHADO = 2;
+    case BAJA = 3;
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::DISPONIBLE => 'Disponible',
+            self::DESPACHADO => 'Despachado',
+            self::BAJA       => 'Baja',
+        };
+    }
+}
+```
+
+| Case | Value | Label | Description |
+|---|---|---|---|
+| `DISPONIBLE` | `1` | Disponible | Cylinder is in the warehouse and available for dispatch (subject to technical and area checks) |
+| `DESPACHADO` | `2` | Despachado | Cylinder has been dispatched to a client and is not in the warehouse |
+| `BAJA` | `3` | Baja | Cylinder has been decommissioned and is permanently removed from service |
+
+<Note>
+  A cylinder with `status = DISPONIBLE` is **not** automatically dispatchable.
+  The `TankUnit::isAvailableForDispatch()` method also requires `technicalStatus->name === 'Aprobado'`
+  and `warehouseArea->name === 'Productos aprobados'`. Use the
+  `TankUnit::dispatchable()` scope when querying the list of cylinders eligible
+  for a new dispatch.
+</Note>
+
+---
+
+## MovementType
+
+Categorises every row in the `inventory_movements` table. The value is stored as a `tinyint` in `inventory_movements.type` and automatically cast to this enum. Together with the `occurred_at` timestamp these values form the immutable audit trail for each cylinder.
+
+```php
+enum MovementType: int
+{
+    case ENTRADA               = 1;
+    case TRASLADO              = 2;
+    case SALIDA                = 3;
+    case CAMBIO_ESTADO_TECNICO = 4;
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::ENTRADA               => 'Entrada',
+            self::TRASLADO              => 'Traslado',
+            self::SALIDA                => 'Salida',
+            self::CAMBIO_ESTADO_TECNICO => 'Cambio estado técnico',
+        };
+    }
+}
+```
+
+| Case | Value | Label | When used |
+|---|---|---|---|
+| `ENTRADA` | `1` | Entrada | A new cylinder is registered into the system from a batch |
+| `TRASLADO` | `2` | Traslado | A cylinder is physically moved from one warehouse area to another |
+| `SALIDA` | `3` | Salida | A cylinder is dispatched to a client (outbound) |
+| `CAMBIO_ESTADO_TECNICO` | `4` | Cambio estado técnico | A cylinder's technical status changes (e.g., after inspection or decommission) |
+
+---
+
+## AppRole
+
+Controls access level and permission groups for system users. The value is stored as a `varchar(30)` in `users.role` and defaults to `'ENCARGADO'` for new users. Unlike the other enums, `AppRole` is string-backed. It exposes a static `values()` helper that returns all role strings as a plain array — useful for validation rules.
+
+```php
+enum AppRole: string
+{
+    case PROGRAMADOR   = 'PROGRAMADOR';
+    case ADMINISTRADOR = 'ADMINISTRADOR';
+    case ENCARGADO     = 'ENCARGADO';
+
+    public static function values(): array
+    {
+        return array_map(fn($e) => $e->value, self::cases());
+    }
+}
+```
+
+| Case | Value | Access level |
+|---|---|---|
+| `PROGRAMADOR` | `'PROGRAMADOR'` | Full system access including user management and developer tools |
+| `ADMINISTRADOR` | `'ADMINISTRADOR'` | Full operational and user management access |
+| `ENCARGADO` | `'ENCARGADO'` | Operational access only (batches, dispatches, movements, receptions) |
+
+**Using the `values()` helper in a validation rule:**
+
+```php
+use App\Enums\AppRole;
+
+'role' => ['required', 'string', Rule::in(AppRole::values())],
+```
+
+---
+
+## EntityType
+
+Classifies clients and dispatches by the care programme or institutional category they belong to. The value is stored as a `tinyint` in both `clients.entity_type` and `dispatches.entity_type` and is cast to this enum in both the `Client` and `Dispatch` models.
+
+```php
+enum EntityType: int
+{
+    case ENTIDAD               = 1;
+    case INTRADOMICILIARIO_IESS = 2;
+    case NO_AFILIADO_APOYO     = 3;
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::ENTIDAD                => 'Entidad',
+            self::INTRADOMICILIARIO_IESS => 'Intradomiciliario IESS',
+            self::NO_AFILIADO_APOYO      => 'No afiliado / Apoyo',
+        };
+    }
+}
+```
+
+| Case | Value | Label | Use |
+|---|---|---|---|
+| `ENTIDAD` | `1` | Entidad | Institutional client (hospital, clinic, public entity) |
+| `INTRADOMICILIARIO_IESS` | `2` | Intradomiciliario IESS | IESS home-care patient receiving cylinders at their residence |
+| `NO_AFILIADO_APOYO` | `3` | No afiliado / Apoyo | Unaffiliated patient or support/humanitarian delivery |
+
+<Tip>
+  The `entity_type` on a `Dispatch` is denormalised from the client at dispatch
+  time. This preserves the correct classification in the historical record even
+  if the client's entity type is later updated.
+</Tip>

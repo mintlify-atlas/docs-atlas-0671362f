@@ -1,0 +1,258 @@
+---
+title: "Technical Receptions: Compliance Checklist for Incoming Batches"
+sidebarTitle: "Technical Receptions"
+description: "Create and manage technical reception forms in OxygenDispatch. Each form covers a 30-item compliance checklist across documentary, certificate, and physical inspection sections."
+---
+
+A **technical reception** (*ficha técnica de recepción*) is the formal quality-control record that must accompany every incoming shipment of medical gas cylinders. Peruvian medical-device regulations require that each batch delivery be inspected and documented before cylinders can be placed into active inventory. In OxygenDispatch, one technical reception covers every batch that shares the same `document_number` — the delivery note or purchase-order number printed on the supplier's paperwork — giving quality teams a single, auditable checklist per shipment regardless of how many individual batches or cylinders arrived under that order.
+
+---
+
+## Overview
+
+The `TechnicalReception` model is uniquely keyed on `document_number`. Because all batches in a single shipment share the same document number, one reception form represents the complete compliance record for the entire delivery. Creating a new form navigates to it via the `document_number` query parameter; if a reception already exists for that document number the application redirects straight to the edit view so that no duplicate records can be created.
+
+The reception aggregates header metadata (supplier, dates, responsible personnel), the auto-calculated `documentation_complies` flag, the overall `final_result`, and a full set of `TechnicalReceptionItem` checklist rows.
+
+---
+
+## Reception header fields
+
+<ParamField body="document_number" type="string" required>
+  The delivery note or purchase-order number. Must already exist in the `batches` table and must be unique across `technical_receptions`. All batches and tank units sharing this number fall under the same reception.
+</ParamField>
+
+<ParamField body="reception_date" type="date">
+  The date and time the shipment was physically received at the warehouse. Nullable; pre-populated from the earliest `received_at` date found in the matching batches.
+</ParamField>
+
+<ParamField body="invoice_number" type="string">
+  Supplier invoice reference. Max 100 characters.
+</ParamField>
+
+<ParamField body="remission_guide_number" type="string">
+  Remission guide (*guía de remisión*) number accompanying the shipment. Max 100 characters.
+</ParamField>
+
+<ParamField body="supplier_name" type="string">
+  Name of the supplying company. Max 200 characters.
+</ParamField>
+
+<ParamField body="manufacturer_name" type="string">
+  Name of the cylinder or gas manufacturer. Max 200 characters.
+</ParamField>
+
+<ParamField body="delivered_by" type="string">
+  Full name of the person who delivered the shipment on behalf of the supplier. Max 200 characters.
+</ParamField>
+
+<ParamField body="received_by" type="string">
+  Full name of the warehouse staff member who accepted delivery. Max 200 characters. Pre-populated with the authenticated user's name.
+</ParamField>
+
+<ParamField body="storage_conditions" type="text">
+  Free-text description of the storage conditions under which the shipment arrived or must be held.
+</ParamField>
+
+<ParamField body="quantity_received" type="integer">
+  Total number of individual cylinder units received. Must be `≥ 0`. Auto-calculated from the count of `TankUnit` records linked to the matching batches.
+</ParamField>
+
+<ParamField body="documentation_complies" type="boolean">
+  **Read-only / auto-calculated.** Set to `true` only when every item in the *Revisión documental* section has been explicitly marked and all are compliant. Set to `null` if any documental item has not yet been answered. See [documentation\_complies auto-calculation](#documentation_complies-auto-calculation) below.
+</ParamField>
+
+<ParamField body="final_result" type="string" required>
+  Overall outcome of the reception. Must be one of:
+
+  | Value | Meaning |
+  |---|---|
+  | `pendiente` | Review is still in progress (default) |
+  | `aprobado` | Shipment passed all checks |
+  | `rechazado` | Shipment was rejected |
+</ParamField>
+
+<ParamField body="responsible_name" type="string">
+  Full name of the quality professional responsible for signing off the form. Max 200 characters. Defaults to the configured *Responsable Técnico*.
+</ParamField>
+
+<ParamField body="responsible_position" type="string">
+  Job title or role of the responsible person (e.g. *Responsable Técnico*). Max 200 characters.
+</ParamField>
+
+<ParamField body="responsible_observation" type="text">
+  Free-text observations or notes from the responsible person.
+</ParamField>
+
+---
+
+## Checklist sections
+
+Every reception ships with a pre-built, 30-item checklist (`defaultChecklist()`) divided into three sections. Items are stored as `TechnicalReceptionItem` rows, each carrying a `section` label, a human-readable `label`, a nullable `complies` boolean, a free-text `observation`, and an integer `sort_order` that preserves the canonical display sequence.
+
+### 1 — Revisión documental (12 items)
+
+Documentary review confirms that all paperwork accompanying the shipment is present and correct.
+
+| # | Label |
+|---|---|
+| 1 | Nombre del producto |
+| 2 | Nombre del gas y fórmula química |
+| 3 | Concentración del principio activo, cuando aplique |
+| 4 | Presentación del producto y advertencias del uso |
+| 5 | Nombre del fabricante y/o proveedor |
+| 6 | Condiciones de almacenamiento |
+| 7 | Cantidad de productos recibidos |
+| 8 | Vía de administración, cuando aplique |
+| 9 | Lote / serie |
+| 10 | Fecha de elaboración |
+| 11 | Fecha de expiración |
+| 12 | Nombre y firma de la persona que entrega y de la que recibe |
+
+### 2 — Certificado de análisis según el tipo de producto (2 items)
+
+Verifies that the relevant quality certificates were supplied by the manufacturer.
+
+| # | Label |
+|---|---|
+| 13 | Certificado de análisis de control de calidad (COA) |
+| 14 | Certificado de esterilidad, cuando aplique, emitido por el fabricante |
+
+### 3 — Especificaciones técnicas según muestreo (16 items)
+
+Physical and label inspection carried out on a representative sample of cylinders from the shipment.
+
+| # | Label |
+|---|---|
+| 15 | La etiqueta de identificación corresponde con la del producto que contiene: nombre del gas y fórmula química |
+| 16 | Nombre del producto / nombre genérico |
+| 17 | Lote |
+| 18 | Fecha de elaboración |
+| 19 | Fecha de expiración |
+| 20 | Presentación del producto, forma farmacéutica y advertencias de uso |
+| 21 | Intacto, sin rasgaduras o algún signo que evidencie deterioro del producto |
+| 22 | Nombre del fabricante y/o importador cuando corresponda |
+| 23 | Condiciones de almacenamiento |
+| 24 | Que no exista presencia de quemaduras de arco, golpes |
+| 25 | Que no presente grietas, roturas ni perforaciones |
+| 26 | Que se encuentre bien sellado |
+| 27 | Que no se encuentren deformados |
+| 28 | Que no se encuentren sucios con grasas o aceites |
+| 29 | Que indique la concentración del principio activo |
+| 30 | Las etiquetas de identificación de los envases están bien adheridas y cumplen con las disposiciones de los reglamentos de registro sanitario según corresponda a cada producto |
+
+Each item's `complies` field accepts three states: `true` (complies), `false` (does not comply), or `null` (not yet answered). An `observation` text field is available on every item for inline notes.
+
+---
+
+## `documentation_complies` auto-calculation
+
+The `documentation_complies` header field is derived entirely from the state of the 12 **Revisión documental** items at save time — it is never set manually.
+
+```
+if ALL 12 "Revisión documental" items are marked (complies ≠ null):
+    documentation_complies = (all 12 items have complies = true)
+else:
+    documentation_complies = null          ← still in progress
+```
+
+The calculation runs inside `validateReception()` on every `store` and `update` call:
+
+```php
+$documentalItems = $items->filter(
+    fn($item) => ($item['section'] ?? '') === 'Revisión documental'
+);
+
+$allDocumentalMarked = $documentalItems->every(
+    fn($item) => array_key_exists('complies', $item) && $item['complies'] !== ''
+);
+
+$allDocumentalComplies = $documentalItems->every(
+    fn($item) => (string) ($item['complies'] ?? '') === '1'
+);
+
+$data['documentation_complies'] = $allDocumentalMarked
+    ? $allDocumentalComplies
+    : null;
+```
+
+This means `documentation_complies` can only ever be `true` when every single documentary item is both answered **and** passing. A single unanswered item drives the field back to `null`; a single failing item drives it to `false`.
+
+---
+
+## PDF export
+
+A print-ready version of the form can be streamed at any time:
+
+```
+GET /technical-receptions/{technicalReception}/pdf
+```
+
+The response streams an **A4 portrait** PDF rendered via [DomPDF](https://github.com/barryvdh/laravel-dompdf). The filename is derived from the `document_number` with slashes, backslashes, and spaces replaced by hyphens:
+
+```
+ficha-tecnica-{safe-document-number}.pdf
+```
+
+No authentication scope change is required — the route follows the same middleware as the rest of the reception resource.
+
+---
+
+## Signed PDF upload
+
+After a physical copy of the form has been signed by the *Responsable Técnico*, the scanned PDF can be attached to the record:
+
+```
+POST /technical-receptions/{technicalReception}/signed-pdf
+Content-Type: multipart/form-data
+```
+
+<ParamField body="signed_pdf" type="file" required>
+  The signed reception form as a PDF. Allowed MIME type: `application/pdf`. Maximum size: **10 MB** (10 240 KB).
+</ParamField>
+
+On success the file is stored at:
+
+```
+storage/app/public/technical-receptions/signed/
+ficha-tecnica-firmada-{safe-document-number}-{YmdHis}.pdf
+```
+
+If a signed PDF was previously uploaded for this reception, the old file is deleted from disk before the new one is written. The following fields are updated on the `TechnicalReception` record:
+
+| Field | Value |
+|---|---|
+| `signed_pdf_path` | Storage-relative path of the saved file |
+| `signed_pdf_uploaded_at` | Current timestamp |
+| `signed_pdf_uploaded_by` | Email address of the authenticated user |
+
+---
+
+## Filtering the reception list
+
+```
+GET /technical-receptions
+```
+
+The index groups batches by `document_number` and left-joins `technical_receptions`, so every unique document number appears whether or not a form has been created yet.
+
+<ParamField query="q" type="string">
+  Free-text search. Performs a `LIKE` match against `batches.document_number`, `batches.supplier_name`, `batches.voucher_number`, and `batches.batch_number`.
+</ParamField>
+
+<ParamField query="final_result" type="string">
+  Filter by reception outcome. Accepted values:
+
+  | Value | Effect |
+  |---|---|
+  | `pendiente` | Only receptions still under review |
+  | `aprobado` | Only approved receptions |
+  | `rechazado` | Only rejected receptions |
+  | `sin_ficha` | Document numbers that have **no** reception form yet |
+</ParamField>
+
+Results are paginated at **15 rows per page** and ordered by the earliest `received_at` date within each document group, descending.
+
+<Note>
+  Navigating to `GET /technical-receptions/create?document_number={value}` will redirect to the **edit** view if a reception already exists for that document number, returning a success flash message: *"Esta orden ya tiene ficha técnica. Puedes continuar editando el checklist."* If the document number is blank or not found in the `batches` table, the user is redirected back to the index with an error.
+</Note>

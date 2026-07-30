@@ -1,0 +1,124 @@
+---
+title: "Tank Lifecycle: From Batch Intake to Dispatch"
+sidebarTitle: "Tank Lifecycle"
+description: "How an oxygen cylinder moves through OxygenDispatch from initial batch registration, technical inspection, warehouse staging, and final client dispatch."
+---
+
+Every oxygen cylinder managed by OxygenDispatch follows a well-defined lifecycle that begins the moment a supplier shipment arrives and ends either when the tank is dispatched to a client or formally decommissioned. Understanding this lifecycle is essential for operators, administrators, and developers — it governs which tanks can be dispatched, how inventory positions are tracked, and where each unit sits in the warehouse at any point in time.
+
+## Lifecycle stages
+
+<Steps>
+  <Step title="Batch registration">
+    When a shipment arrives, an operator creates a **Batch** record that captures the supplier, voucher reference, and the `received_at` timestamp. The batch also carries a `document_number` that links it to downstream technical-reception records. No individual tanks exist yet — the batch is simply the container that groups the incoming cylinders.
+  </Step>
+
+  <Step title="Tank generation">
+    After the batch is saved, the operator triggers **Generate Tanks** (`POST /batches/{batch}/generate-tanks`). The system creates one `TankUnit` record per cylinder in the shipment, each stamped with the following initial values:
+
+    ```php
+    status          = TankStatus::DISPONIBLE   // value: 1
+    warehouse_area  = 'Recepción'
+    technical_status = 'Pendiente'
+    ```
+
+    An `ENTRADA` inventory movement is also recorded for each tank at this point, establishing the first entry in the audit trail.
+  </Step>
+
+  <Step title="Technical reception">
+    A `TechnicalReception` checklist is created and linked to the batch's `document_number`. Warehouse staff work through **30+ checklist items** grouped across three sections — covering documentation, physical condition, and labelling requirements. The completed checklist can be exported as a PDF and, once signed, re-uploaded via `POST /technical-receptions/{technicalReception}/signed-pdf`.
+  </Step>
+
+  <Step title="Tank review">
+    With the reception checklist complete, each tank in the batch is individually reviewed through the tank-review screen (`POST /technical-receptions/{technicalReception}/tank-reviews/process`). The `TankTechnicalReviewService` handles two outcomes inside a database transaction:
+
+    | Outcome | `technical_status` set to | `warehouse_area` moved to |
+    |---------|--------------------------|--------------------------|
+    | **Approved** | `Aprobado` | `Productos aprobados` |
+    | **Rejected** | `Rechazado` | `Rechazos, devoluciones y retiro del mercado` |
+
+    Both outcomes write a `TankTechnicalReview` record and a `CAMBIO_ESTADO_TECNICO` inventory movement, keeping the audit trail complete. A `reviewed_by_user_email` and `reviewed_at` timestamp are captured for every decision.
+  </Step>
+
+  <Step title="Available for dispatch">
+    A tank is only considered dispatchable when **all three** of the following conditions are true simultaneously:
+
+    1. `status` is `DISPONIBLE`
+    2. `technical_status` name is `Aprobado`
+    3. `warehouse_area` name is `Productos aprobados`
+
+    This logic is enforced by the `isAvailableForDispatch()` method on `TankUnit` (see the section below) and by the `scopeDispatchable()` query scope used across the dispatch service. Tanks that were rejected or have not yet been reviewed will never satisfy all three conditions.
+  </Step>
+
+  <Step title="Dispatch">
+    When a dispatch order is submitted, each selected tank is updated atomically:
+
+    ```php
+    status       = TankStatus::DESPACHADO   // value: 2
+    dispatched_at = now()
+    ```
+
+    A `SALIDA` inventory movement is recorded with the dispatch document number as the `reference_document`. The tank's `warehouse_area` reflects its last known physical location (`Productos aprobados`) and no `to_area_id` is set, indicating it has left the warehouse entirely.
+  </Step>
+
+  <Step title="Decommission">
+    Any tank — regardless of its current stage — can be decommissioned by an operator via `POST /tanks/{tank}/decommission`. The `InventoryService::decommission()` method sets `status = TankStatus::BAJA` and records a `CAMBIO_ESTADO_TECNICO` movement whose `notes` field is prefixed with `[BAJA]`. A decommissioned tank cannot be dispatched.
+  </Step>
+</Steps>
+
+## Tank status values
+
+Tank status is stored as a backed integer enum (`App\Enums\TankStatus`) on the `status` column of every `TankUnit` record.
+
+```php
+enum TankStatus: int
+{
+    case DISPONIBLE = 1;
+    case DESPACHADO = 2;
+    case BAJA       = 3;
+}
+```
+
+| Value | Integer | Meaning |
+|-------|---------|---------|
+| `DISPONIBLE` | `1` | Tank is physically in the warehouse and available |
+| `DESPACHADO` | `2` | Tank has been delivered to a client |
+| `BAJA` | `3` | Tank has been formally decommissioned |
+
+<Note>
+  `status` alone does not determine dispatch eligibility. A tank with `status=DISPONIBLE` that is still in `Recepción` or has `technical_status=Pendiente` is **not** dispatchable. The full three-condition check described in the next section is always required.
+</Note>
+
+## Dispatch eligibility check
+
+The `isAvailableForDispatch()` method on `TankUnit` is the authoritative guard used before any dispatch action is permitted:
+
+```php
+public function isAvailableForDispatch(): bool
+{
+    $this->loadMissing([
+        'technicalStatus',
+        'warehouseArea',
+    ]);
+
+    return $this->status === TankStatus::DISPONIBLE
+        && $this->normalizedTechnicalStatusName() === 'aprobado'
+        && $this->normalizedWarehouseAreaName() === 'productos aprobados';
+}
+```
+
+All three conditions must be `true` at the same time:
+
+1. **`status === DISPONIBLE`** — The tank has not been dispatched or decommissioned.
+2. **`technicalStatus.name === 'Aprobado'`** — The tank passed its per-unit technical review.
+3. **`warehouseArea.name === 'Productos aprobados'`** — The tank is physically staged in the approved-products area.
+
+The comparison is performed after `mb_strtolower()` + `trim()` normalization, so minor casing variations in catalog names do not cause false negatives.
+
+<Note>
+  For bulk queries — such as populating the dispatch form's tank selector — the `scopeDispatchable()` query scope on `TankUnit` mirrors the same three conditions using `whereHas` clauses on the `technicalStatus` and `warehouseArea` relationships. This scope is the single source of truth for any query that needs to find all dispatchable tanks efficiently at the database level, avoiding N+1 checks with `isAvailableForDispatch()`.
+
+  ```php
+  TankUnit::query()->dispatchable()->get();
+  ```
+</Note>

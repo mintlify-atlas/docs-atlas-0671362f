@@ -1,0 +1,493 @@
+---
+title: "Data Models: Eloquent Models and Their Relationships"
+sidebarTitle: "Data Models"
+description: "Complete reference for OxygenDispatch Eloquent models — fields, relationships, casts, and key methods for Batch, TankUnit, Dispatch, TechnicalReception, and all supporting models."
+---
+
+OxygenDispatch is built on a set of Eloquent models that map closely to the physical and operational reality of medical gas cylinder management. The core lifecycle runs from a **Batch** (a shipment of cylinders) through individual **TankUnit** records (one per physical cylinder), across **Dispatch** and **DispatchLine** records (outbound deliveries to clients), and back through **TechnicalReception** and **TankTechnicalReview** records (incoming quality control). Supporting catalog models — `GasType`, `CylinderCapacity`, `WarehouseArea`, `TechnicalStatus`, and `CatalogProduct` — act as lookup tables that classify and locate every cylinder at all times. All models live under the `App\Models` namespace.
+
+---
+
+## Core Models
+
+<AccordionGroup>
+
+<Accordion title="Batch">
+
+The `Batch` model represents a single incoming shipment of cylinders from a supplier. Every `TankUnit` that enters the system must belong to exactly one batch. Batches carry the procurement paper trail — voucher numbers, sanitary registries, supplier codes — and connect logically to a `TechnicalReception` document via a shared `document_number`.
+
+**Table:** `batches`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `batch_number` | `string` | Unique identifier for the batch |
+| `gas_type_id` | `bigint` (nullable FK) | References `gas_types.id` |
+| `capacity_id` | `bigint` (nullable FK) | References `cylinder_capacities.id` |
+| `received_at` | `datetime` | Date and time the batch was received |
+| `document_number` | `string` (nullable) | Shared with `TechnicalReception` for logical linking |
+| `supplier_name` | `string` (nullable) | Name of the supplying company |
+| `supplier_code` | `string` (nullable) | Supplier's internal code |
+| `voucher_type` | `string` (nullable) | Type of purchase voucher |
+| `voucher_number` | `string` (nullable) | Voucher document number |
+| `voucher_date` | `date` (nullable) | Date on the voucher |
+| `sanitary_registry` | `string` (nullable) | Sanitary registry number |
+| `manufactured_at` | `date` (nullable) | Manufacture date |
+| `expires_at` | `date` (nullable) | Expiry date |
+| `notes` | `text` (nullable) | Free-text notes |
+| `created_by_user_email` | `string` | Email of the user who created the record |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `received_at` | `datetime` |
+| `voucher_date` | `date` |
+| `manufactured_at` | `date` |
+| `expires_at` | `date` |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `gasType()` | `belongsTo` | `GasType` |
+| `capacity()` | `belongsTo` | `CylinderCapacity` (via `capacity_id`) |
+| `tankUnits()` | `hasMany` | `TankUnit` |
+| `technicalReception()` | `hasOne` | `TechnicalReception` — matched on `document_number` (logical FK, not a database foreign key) |
+
+</Accordion>
+
+<Accordion title="TankUnit">
+
+The `TankUnit` model represents a single physical gas cylinder. It is the central entity of the system — every movement, dispatch, and technical review ultimately references a tank unit. The primary key is a **UUID** (powered by the `HasUuids` trait), which means `$incrementing` is `false` and `$keyType` is `'string'`.
+
+**Table:** `tank_units`
+
+**Primary key:** `id` (UUID — auto-generated via `HasUuids`)
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | UUID primary key |
+| `serial` | `string` | Full serial string, unique across all units |
+| `serial_prefix` | `string` (nullable) | Alphabetic prefix extracted from the serial |
+| `serial_number` | `bigint` (nullable) | Numeric portion extracted from the serial |
+| `batch_id` | `bigint` (FK) | References `batches.id`, cascades on delete |
+| `product_id` | `bigint` (nullable FK) | References `catalog_products.id` |
+| `gas_type_id` | `bigint` (FK) | References `gas_types.id` |
+| `capacity_id` | `bigint` (FK) | References `cylinder_capacities.id` |
+| `warehouse_area_id` | `bigint` (FK) | References `warehouse_areas.id` |
+| `technical_status_id` | `bigint` (FK) | References `technical_statuses.id` |
+| `sanitary_registry` | `string` (nullable) | Sanitary registry number for this unit |
+| `manufactured_at` | `date` (nullable) | Manufacture date |
+| `expires_at` | `date` (nullable) | Expiry date |
+| `status` | `tinyint` | Cast to `TankStatus` enum (1 = DISPONIBLE default) |
+| `dispatched_at` | `datetime` (nullable) | Timestamp when the unit was last dispatched |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `status` | `TankStatus` (enum) |
+| `dispatched_at` | `datetime` |
+| `manufactured_at` | `date` |
+| `expires_at` | `date` |
+
+**Relationships**
+
+| Method | Type | Target | Notes |
+|---|---|---|---|
+| `batch()` | `belongsTo` | `Batch` | |
+| `product()` | `belongsTo` | `CatalogProduct` (via `product_id`) | |
+| `gasType()` | `belongsTo` | `GasType` | |
+| `capacity()` | `belongsTo` | `CylinderCapacity` (via `capacity_id`) | |
+| `warehouseArea()` | `belongsTo` | `WarehouseArea` | |
+| `technicalStatus()` | `belongsTo` | `TechnicalStatus` | |
+| `movements()` | `hasMany` | `InventoryMovement` (via `tank_unit_id`) | Ordered by `occurred_at` descending |
+| `technicalReviews()` | `hasMany` | `TankTechnicalReview` (via `tank_unit_id`) | Ordered by `reviewed_at` descending |
+| `latestTechnicalReview()` | `hasOne` | `TankTechnicalReview` (via `tank_unit_id`) | Uses `latestOfMany('reviewed_at')` |
+
+**Notable methods**
+
+`isAvailableForDispatch(): bool`
+
+Returns `true` only when **all three** conditions are met:
+
+1. `status` is `TankStatus::DISPONIBLE`
+2. `technicalStatus->name` equals `'Aprobado'` (case-insensitive)
+3. `warehouseArea->name` equals `'Productos aprobados'` (case-insensitive)
+
+Automatically lazy-loads `technicalStatus` and `warehouseArea` before evaluating.
+
+```php
+if ($tank->isAvailableForDispatch()) {
+    // safe to include in a dispatch
+}
+```
+
+`scopeDispatchable(Builder $query): Builder`
+
+Query scope that applies the same three conditions as `isAvailableForDispatch()` at the database level, producing an efficient single query. Use this when building dispatch selection lists.
+
+```php
+$tanks = TankUnit::dispatchable()->get();
+```
+
+</Accordion>
+
+<Accordion title="Dispatch">
+
+The `Dispatch` model represents a completed outbound delivery event — one or more cylinders dispatched to a client at a specific date and time. The full list of delivered cylinders is stored in child `DispatchLine` records.
+
+**Table:** `dispatches`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `client_id` | `bigint` (nullable FK) | References `clients.id`; set to `null` on client deletion |
+| `dispatched_at` | `datetime` | When the dispatch occurred |
+| `document_number` | `string` (nullable) | Internal document reference |
+| `entity_type` | `tinyint` (nullable) | Cast to `EntityType` enum |
+| `remission_plate` | `string` (nullable) | Vehicle plate used for remission |
+| `performed_by_user_email` | `string` | Email of the operator who performed the dispatch |
+| `voucher_type` | `string` (nullable) | Type of delivery voucher |
+| `voucher_number` | `string` (nullable) | Delivery voucher number |
+| `remission_number` | `string` (nullable) | Remission guide number |
+| `notes` | `text` (nullable) | Free-text notes |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `dispatched_at` | `datetime` |
+| `entity_type` | `EntityType` (enum) |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `client()` | `belongsTo` | `Client` |
+| `lines()` | `hasMany` | `DispatchLine` |
+
+</Accordion>
+
+<Accordion title="DispatchLine">
+
+The `DispatchLine` model is a pivot/join record linking one `Dispatch` to one `TankUnit`. Each row represents a single cylinder included in a dispatch. The table has a composite unique constraint on `(dispatch_id, tank_unit_id)`.
+
+**Table:** `dispatch_lines`
+
+**Timestamps:** disabled (`$timestamps = false`)
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `dispatch_id` | `bigint` (FK) | References `dispatches.id`, cascades on delete |
+| `tank_unit_id` | `uuid` (FK) | References `tank_units.id`, restrict on delete |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `dispatch()` | `belongsTo` | `Dispatch` |
+| `tankUnit()` | `belongsTo` | `TankUnit` |
+
+</Accordion>
+
+<Accordion title="Client">
+
+The `Client` model stores the recipient institutions and individuals that receive cylinder dispatches. The `entity_type` field is cast to the `EntityType` enum, which distinguishes between institutional clients, IESS home-care patients, and unaffiliated support cases.
+
+**Table:** `clients`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | `string` | Client name (max 200 chars) |
+| `entity_type` | `tinyint` (nullable) | Cast to `EntityType` enum |
+| `document` | `string` (nullable) | ID or RUC document number |
+| `phone` | `string` (nullable) | Contact phone |
+| `email` | `string` (nullable) | Contact email |
+| `address` | `string` (nullable) | Physical address |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `entity_type` | `EntityType` (enum) |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `dispatches()` | `hasMany` | `Dispatch` |
+
+</Accordion>
+
+<Accordion title="InventoryMovement">
+
+`InventoryMovement` is the immutable audit log for every state change that affects a cylinder's location or status. Movements are never updated — they are append-only, and together they form the full history of any tank unit. The `type` field is cast to the `MovementType` enum.
+
+**Table:** `inventory_movements`
+
+**Timestamps:** disabled (`$timestamps = false`)
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `type` | `tinyint` | Cast to `MovementType` enum |
+| `occurred_at` | `datetime` | When the movement took place |
+| `tank_unit_id` | `uuid` (FK) | References `tank_units.id`, cascades on delete |
+| `from_area_id` | `bigint` (nullable FK) | Source warehouse area |
+| `to_area_id` | `bigint` (nullable FK) | Destination warehouse area |
+| `batch_id` | `bigint` (nullable FK) | Associated batch (set to `null` on batch deletion) |
+| `reference_document` | `string` (nullable) | Any reference document number |
+| `performed_by_user_email` | `string` | Email of the operator who recorded the movement |
+| `notes` | `string` (nullable) | Free-text notes (max 500 chars) |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `type` | `MovementType` (enum) |
+| `occurred_at` | `datetime` |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `tankUnit()` | `belongsTo` | `TankUnit` |
+| `fromArea()` | `belongsTo` | `WarehouseArea` (via `from_area_id`) |
+| `toArea()` | `belongsTo` | `WarehouseArea` (via `to_area_id`) |
+| `batch()` | `belongsTo` | `Batch` |
+
+</Accordion>
+
+<Accordion title="TechnicalReception">
+
+The `TechnicalReception` model captures the formal quality-control document produced when a batch of cylinders is received. It stores supplier metadata, compliance results, a responsible-party signature block, and an optional path to the signed PDF. The `document_number` field ties it logically to a `Batch` record (see `Batch::technicalReception()`).
+
+**Table:** `technical_receptions`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `document_number` | `string` (unique) | Shared with `batches.document_number` for logical linking |
+| `reception_date` | `datetime` (nullable) | Date of the physical reception inspection |
+| `invoice_number` | `string` (nullable) | Invoice reference |
+| `remission_guide_number` | `string` (nullable) | Remission guide reference |
+| `supplier_name` | `string` (nullable) | Supplier name |
+| `manufacturer_name` | `string` (nullable) | Manufacturer name |
+| `delivered_by` | `string` (nullable) | Name of the delivery person |
+| `received_by` | `string` (nullable) | Name of the receiving person |
+| `storage_conditions` | `text` (nullable) | Description of storage conditions observed |
+| `quantity_received` | `integer` | Number of cylinders received |
+| `documentation_complies` | `boolean` (nullable) | Whether accompanying documentation is compliant |
+| `final_result` | `string` | Overall result: `'pendiente'`, `'aprobado'`, or `'rechazado'` |
+| `responsible_name` | `string` (nullable) | Name of the responsible signatory |
+| `responsible_position` | `string` (nullable) | Position of the responsible signatory |
+| `responsible_observation` | `text` (nullable) | Observations from the responsible signatory |
+| `signed_pdf_path` | `string` (nullable) | Storage path to the uploaded signed PDF |
+| `signed_pdf_uploaded_at` | `datetime` (nullable) | When the signed PDF was uploaded |
+| `signed_pdf_uploaded_by` | `string` (nullable) | Email of the user who uploaded the signed PDF |
+| `created_by_user_email` | `string` (nullable) | Email of the user who created the record |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `reception_date` | `datetime` |
+| `quantity_received` | `integer` |
+| `documentation_complies` | `boolean` |
+| `signed_pdf_uploaded_at` | `datetime` |
+
+**Relationships**
+
+| Method | Type | Target | Notes |
+|---|---|---|---|
+| `items()` | `hasMany` | `TechnicalReceptionItem` | Ordered by `sort_order` ascending |
+| `batches()` | Query Builder | `Batch` | Returns a query builder filtered by `document_number`; not a standard Eloquent relation |
+
+**Notable methods**
+
+| Method | Returns | Description |
+|---|---|---|
+| `isApproved()` | `bool` | `true` when `final_result === 'aprobado'` |
+| `isRejected()` | `bool` | `true` when `final_result === 'rechazado'` |
+
+</Accordion>
+
+<Accordion title="TechnicalReceptionItem">
+
+`TechnicalReceptionItem` stores the individual checklist rows of a technical reception form. Each item belongs to a section, has a label, and records whether it complies along with an optional observation. The `sort_order` field controls the display order within a section.
+
+**Table:** `technical_reception_items`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `technical_reception_id` | `bigint` (FK) | References `technical_receptions.id`, cascades on delete |
+| `section` | `string` | Section heading this item belongs to (max 120 chars) |
+| `label` | `text` | Human-readable checklist label |
+| `complies` | `boolean` (nullable) | Whether this item complies; `null` means not yet evaluated |
+| `observation` | `text` (nullable) | Optional observation or note |
+| `sort_order` | `integer` | Display order within the section (default 0) |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `complies` | `boolean` |
+| `sort_order` | `integer` |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `technicalReception()` | `belongsTo` | `TechnicalReception` |
+
+</Accordion>
+
+<Accordion title="TankTechnicalReview">
+
+The `TankTechnicalReview` model records the per-cylinder outcome of a technical inspection. It links a single `TankUnit` to a `TechnicalReception` event and stores the final result (`approved` or `rejected`), an optional anomaly type, and the reviewer's details.
+
+**Table:** `tank_technical_reviews`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `tank_unit_id` | `uuid` (FK) | References `tank_units.id`, cascades on delete |
+| `technical_reception_id` | `bigint` (nullable FK) | References `technical_receptions.id`; set to `null` on reception deletion |
+| `result` | `string` | `'approved'` or `'rejected'` |
+| `anomaly_type` | `string` (nullable) | Type of anomaly found (populated when rejected) |
+| `observation` | `text` (nullable) | Free-text reviewer observation |
+| `reviewed_by_user_email` | `string` | Email of the reviewer |
+| `reviewed_at` | `datetime` | Timestamp of the review |
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `reviewed_at` | `datetime` |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `tankUnit()` | `belongsTo` | `TankUnit` |
+| `technicalReception()` | `belongsTo` | `TechnicalReception` |
+
+**Notable methods**
+
+| Method | Returns | Description |
+|---|---|---|
+| `isApproved()` | `bool` | `true` when `result === 'approved'` |
+| `isRejected()` | `bool` | `true` when `result === 'rejected'` |
+
+</Accordion>
+
+<Accordion title="CatalogProduct">
+
+`CatalogProduct` represents an officially registered product in the catalog — a specific combination of gas type, cylinder capacity, product code, and sanitary registry. Tank units can be linked to a catalog product via the optional `product_id` field to make their classification official.
+
+**Table:** `catalog_products`
+
+**Fillable fields**
+
+| Field | Type | Notes |
+|---|---|---|
+| `code` | `string` (unique) | Product code, e.g. `OMG-1` or `00AC` |
+| `detail` | `string` | Human-readable product description, e.g. `OXÍGENO MEDICINAL GAS 1 m³` |
+| `gas_type_id` | `bigint` (FK) | References `gas_types.id` |
+| `capacity_id` | `bigint` (nullable FK) | References `cylinder_capacities.id` |
+| `sanitary_registry` | `string` (nullable) | Sanitary registry number for the product |
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `gasType()` | `belongsTo` | `GasType` |
+| `capacity()` | `belongsTo` | `CylinderCapacity` (via `capacity_id`) |
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Catalog / Lookup Models
+
+These four models are simple reference tables with no complex logic. They act as lookup data that classifies cylinders and controls which values are valid in the rest of the system.
+
+<AccordionGroup>
+
+<Accordion title="GasType">
+
+Defines the type of gas contained in a cylinder (e.g., medical oxygen, nitrogen).
+
+**Table:** `gas_types`
+
+**Fillable fields:** `name` (string, unique, max 120 chars)
+
+**Relationships**
+
+| Method | Type | Target |
+|---|---|---|
+| `batches()` | `hasMany` | `Batch` |
+| `tankUnits()` | `hasMany` | `TankUnit` |
+
+</Accordion>
+
+<Accordion title="CylinderCapacity">
+
+Defines the volumetric capacity of a cylinder type in cubic metres.
+
+**Table:** `cylinder_capacities`
+
+**Fillable fields:** `name` (string, unique, max 120 chars), `m3` (decimal, nullable)
+
+**Casts**
+
+| Field | Cast |
+|---|---|
+| `m3` | `decimal:2` |
+
+</Accordion>
+
+<Accordion title="WarehouseArea">
+
+Defines a named physical zone inside the warehouse (e.g., `Cuarentena`, `Productos aprobados`, `Baja`). Tank units are always assigned to one area, and area transitions are tracked via `InventoryMovement`.
+
+**Table:** `warehouse_areas`
+
+**Fillable fields:** `name` (string, unique, max 120 chars)
+
+</Accordion>
+
+<Accordion title="TechnicalStatus">
+
+Defines the technical inspection status assigned to a cylinder after a review cycle (e.g., `Aprobado`, `Rechazado`, `En revisión`).
+
+**Table:** `technical_statuses`
+
+**Fillable fields:** `name` (string, unique, max 120 chars)
+
+<Note>
+  The `isAvailableForDispatch()` method on `TankUnit` checks that
+  `technicalStatus->name` equals `'Aprobado'`. Renaming this record in the
+  database will silently break dispatch eligibility checks.
+</Note>
+
+</Accordion>
+
+</AccordionGroup>

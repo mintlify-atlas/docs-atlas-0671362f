@@ -1,0 +1,128 @@
+---
+title: "Tank Units: Individual Cylinder Tracking and Management"
+sidebarTitle: "Tank Units"
+description: "View, filter, transfer, and manage individual oxygen cylinder units in OxygenDispatch. Each tank has a unique serial, status, and full movement history."
+---
+
+Tank units are the atomic record in OxygenDispatch — one row per physical cylinder in your facility. Every tank carries a unique serial number, knows which batch it came from, which product it represents, where it is located, its technical approval state, and its operational status. All actions performed on a tank (intake, transfer, status change, dispatch, decommission) are recorded as inventory movements, giving you a complete, tamper-evident audit trail.
+
+<Note>
+  Tank unit IDs are **UUIDs**, not auto-incrementing integers. Always use the UUID when referencing a tank in URLs or API calls (e.g. `GET /tanks/018f4c2a-3b1e-7000-9c3d-d2e1f4a5b6c7`).
+</Note>
+
+## Tank unit fields
+
+The following fields are stored on every tank unit record:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key. Globally unique identifier for this cylinder. |
+| `serial` | string | Full serial string, e.g. `OXI-000042`. Unique across the entire system. |
+| `serial_prefix` | string | The alphabetic/numeric prefix portion, e.g. `OXI`. |
+| `serial_number` | integer | The numeric counter portion used for ordering within a prefix. |
+| `batch_id` | integer | Foreign key to the `batches` table. |
+| `product_id` | integer | Foreign key to `catalog_products`. |
+| `gas_type_id` | integer | Inherited from the product at generation time. |
+| `capacity_id` | integer | Inherited from the product at generation time. |
+| `warehouse_area_id` | integer | The area where the cylinder is currently located. |
+| `technical_status_id` | integer | The current technical approval status from the catalog. |
+| `sanitary_registry` | string\|null | Sanitary registry code, when available. |
+| `manufactured_at` | date\|null | Manufacture date. |
+| `expires_at` | date\|null | Expiry date of the cylinder. |
+| `status` | TankStatus enum | Operational status: `DISPONIBLE` (1), `DESPACHADO` (2), or `BAJA` (3). |
+| `dispatched_at` | datetime\|null | Timestamp of when the tank was dispatched, if applicable. |
+
+## Viewing tanks
+
+`GET /tanks` returns a paginated list of all tank units (**20 per page**), ordered by creation date descending, with related batch, product, gas type, capacity, warehouse area, and technical status eager-loaded.
+
+Apply any combination of the following query string filters:
+
+| Parameter | Type | Behaviour |
+|---|---|---|
+| `batch_number` | string | Partial match on the linked batch's `batch_number` field |
+| `status` | integer | Exact match on `TankStatus` value: `1` = DISPONIBLE, `2` = DESPACHADO, `3` = BAJA |
+| `gas_type_id` | integer | Exact match on gas type |
+| `capacity_id` | integer | Exact match on cylinder capacity |
+| `warehouse_area_id` | integer | Exact match on current warehouse area |
+| `technical_status_id` | integer | Exact match on current technical status |
+| `serial` | string | Partial match on the full serial string (case-insensitive `LIKE`) |
+
+Example — find all available tanks in the approved products area for a specific gas type:
+
+```
+GET /tanks?status=1&gas_type_id=2&warehouse_area_id=5
+```
+
+## Tank detail
+
+`GET /tanks/{tank}` loads the full detail view for a single tank unit. The page displays:
+
+- Linked **batch**, **gas type**, **capacity**, **warehouse area**, and **technical status**
+- The **last 50 inventory movements** for this tank, with from/to area details for each movement
+- Quick-action forms for transferring the tank, changing its technical status, and decommissioning it
+
+## Transferring a tank
+
+Submit `POST /tanks/{tank}/transfer` to move a tank from its current warehouse area to another. A `TRASLADO` inventory movement is recorded automatically, capturing both the origin and destination areas.
+
+<ParamField body="to_area_id" type="integer" required>
+  The destination warehouse area (`warehouse_areas.id`). Must exist in the catalog.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Optional free-text notes about the reason for the transfer. Maximum 500 characters.
+</ParamField>
+
+The movement records the tank's previous `warehouse_area_id` as `from_area_id` and the new area as `to_area_id`. The tank's `warehouse_area_id` is updated atomically inside a database transaction.
+
+## Changing technical status
+
+Submit `POST /tanks/{tank}/technical-status` to update the technical approval state of a tank. A `CAMBIO_ESTADO_TECNICO` inventory movement is recorded automatically.
+
+<ParamField body="technical_status_id" type="integer" required>
+  The new technical status (`technical_statuses.id`). Must exist in the catalog.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Optional notes describing the reason for or outcome of the status change. Maximum 500 characters.
+</ParamField>
+
+This action updates `technical_status_id` on the tank record and records the event in the movement log. It does **not** automatically move the tank to a different warehouse area — use the transfer endpoint for that separately if required.
+
+## Decommissioning a tank
+
+Submit `POST /tanks/{tank}/decommission` to permanently mark a cylinder as out of service. This sets the tank's `status` to `BAJA` (value `3`) and records a `CAMBIO_ESTADO_TECNICO` inventory movement. The movement's `notes` field is always prefixed with `[BAJA]`.
+
+<ParamField body="notes" type="string">
+  Optional explanation for the decommission (damage, expiry, regulatory recall, etc.). Maximum 500 characters. If provided, stored as `[BAJA] <your notes>`; if omitted, stored as `[BAJA]`.
+</ParamField>
+
+A decommissioned tank remains in the database with a full movement history. Its `status=BAJA` makes it ineligible for dispatch or transfer in normal workflows.
+
+## Dispatch eligibility
+
+A tank can only be selected for dispatch when **all three** of the following conditions are simultaneously true:
+
+| Condition | Required value |
+|---|---|
+| `status` | `DISPONIBLE` (1) |
+| `technicalStatus.name` | `Aprobado` |
+| `warehouseArea.name` | `Productos aprobados` |
+
+This rule is enforced in two places in the codebase:
+
+- **`isAvailableForDispatch()`** — an instance method on `TankUnit` that performs the check against the loaded relations and returns a boolean.
+- **`scopeDispatchable()`** — an Eloquent query scope on `TankUnit` that applies all three conditions as `WHERE` clauses, used when building dispatch order lists.
+
+```php
+// Check a single tank
+if ($tank->isAvailableForDispatch()) {
+    // safe to dispatch
+}
+
+// Query all dispatchable tanks
+$eligible = TankUnit::dispatchable()->get();
+```
+
+A tank that has the right technical status but has not yet been moved to the **"Productos aprobados"** area will not appear in dispatch lists. The typical flow is: receive → review → approve (technical status change) → transfer to "Productos aprobados" → available for dispatch.

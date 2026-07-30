@@ -1,0 +1,238 @@
+---
+title: "Dispatches: Send Approved Cylinders to Clients"
+sidebarTitle: "Dispatches"
+description: "Create dispatches in OxygenDispatch by selecting individual cylinder serials or by specifying a quantity. Dispatches auto-generate document numbers from batch data."
+---
+
+A **dispatch** records the outbound movement of one or more medical gas cylinders to a client. Each dispatch captures who received the cylinders, when they left, supporting voucher and remission references, and an automatically computed document number derived from the source batch data. Every dispatched tank is locked from further allocation, and a corresponding `SALIDA` inventory movement is written to the audit trail — all within a single database transaction.
+
+---
+
+## Dispatch methods
+
+OxygenDispatch provides two ways to create a dispatch: hand-picking specific cylinders by serial number, or letting the system pull the right quantity automatically using FIFO selection.
+
+<Tabs>
+  <Tab title="Dispatch by serial selection">
+    Use this method when you know exactly which cylinder serials should leave the warehouse — for example, when a client requests a specific batch or a technician has pre-staged particular units.
+
+    | Step | Route |
+    |------|-------|
+    | Open the create form | `GET /dispatches/create` |
+    | Submit the dispatch | `POST /dispatches` |
+
+    ### Browsing available tanks
+
+    The create page lists every tank whose `status` is `DISPONIBLE` (status = 1). You can narrow the table using the following query parameters:
+
+    <ParamField query="batch" type="string">
+      Partial match against the tank's batch `batch_number` **or** `document_number`. Useful when you know the purchase order reference but not individual serials.
+    </ParamField>
+
+    <ParamField query="serial" type="string">
+      Partial match against the tank's `serial` field.
+    </ParamField>
+
+    <ParamField query="capacity_id" type="integer">
+      Exact match on the cylinder capacity (e.g. 10 L, 40 L). Filters the table to a single size class.
+    </ParamField>
+
+    The table is paginated at 15 rows per page. If the request carries an `X-Requested-With: XMLHttpRequest` header (i.e. `request()->ajax()` is `true`), the endpoint returns JSON instead of a full page render:
+
+    ```json
+    {
+      "html": "<table>…rendered rows…</table>",
+      "total": 42
+    }
+    ```
+
+    ### Form fields
+
+    <ParamField body="client_id" type="integer" optional>
+      ID of the client receiving the cylinders. Must exist in the `clients` table. Leave blank to create a client-less dispatch — `entity_type` will default to `NO_AFILIADO_APOYO` (3).
+    </ParamField>
+
+    <ParamField body="dispatched_at" type="date" required>
+      The date the cylinders were dispatched. Accepted in any format Laravel's `date` rule recognises (e.g. `2025-07-15`).
+    </ParamField>
+
+    <ParamField body="document_number" type="string" optional>
+      **Do not populate this field manually.** It is ignored on submission and overwritten automatically from the batch data of the selected tanks. See [document_number auto-calculation](#document_number-auto-calculation).
+    </ParamField>
+
+    <ParamField body="remission_plate" type="string" optional>
+      Vehicle licence plate on the remission note. Maximum 50 characters.
+    </ParamField>
+
+    <ParamField body="voucher_type" type="string" optional>
+      Type of voucher (e.g. `Factura`, `Nota de entrega`). Maximum 50 characters.
+    </ParamField>
+
+    <ParamField body="voucher_number" type="string" optional>
+      Voucher reference number. Maximum 100 characters.
+    </ParamField>
+
+    <ParamField body="remission_number" type="string" optional>
+      Remission note number. Maximum 100 characters.
+    </ParamField>
+
+    <ParamField body="notes" type="string" optional>
+      Free-text observations. No length limit enforced at the application layer.
+    </ParamField>
+
+    <ParamField body="tank_ids[]" type="array of UUIDs" required>
+      One or more UUID strings identifying the `tank_units` to dispatch. The array must contain at least one element. Duplicate IDs are deduplicated automatically before processing.
+    </ParamField>
+  </Tab>
+
+  <Tab title="Dispatch by quantity">
+    Use this method when you need to send a given number of cylinders and don't care which specific serials are picked — the system applies **FIFO** (First In, First Out) order by `created_at ASC` to select the oldest available stock first.
+
+    | Step | Route |
+    |------|-------|
+    | Open the create form | `GET /dispatches/create-by-quantity` |
+    | Submit the dispatch | `POST /dispatches/store-by-quantity` |
+
+    ### Header fields
+
+    The same header fields as serial selection apply (`client_id`, `dispatched_at`, `remission_plate`, `voucher_type`, `voucher_number`, `remission_number`, `notes`). In addition:
+
+    <ParamField body="quantity" type="integer" required>
+      The number of cylinders to dispatch. Must be between **1** and **5000** inclusive. If the filtered stock cannot satisfy this number, the system throws a `RuntimeException` and rolls back the entire transaction — no tanks are dispatched and no record is created.
+    </ParamField>
+
+    ### Stock filters
+
+    All four filter fields are optional. When provided they narrow the FIFO pool before the quantity limit is applied.
+
+    <ParamField body="gas_type_id" type="integer" optional>
+      Restrict selection to tanks containing a specific gas type (e.g. oxygen, nitrogen).
+    </ParamField>
+
+    <ParamField body="capacity_id" type="integer" optional>
+      Restrict selection to tanks of a specific cylinder capacity.
+    </ParamField>
+
+    <ParamField body="warehouse_area_id" type="integer" optional>
+      Restrict selection to tanks stored in a particular warehouse area.
+    </ParamField>
+
+    <ParamField body="technical_status_id" type="integer" optional>
+      Restrict selection to tanks with a particular technical status (e.g. approved, re-tested).
+    </ParamField>
+
+    After the dispatch is committed, `document_number` is recalculated from the tanks that were actually assigned and saved back to the record. During creation it is set to the temporary placeholder `N/S`.
+  </Tab>
+</Tabs>
+
+---
+
+## What happens during dispatch
+
+Both creation paths delegate to `DispatchService`, which executes the following steps inside a single `DB::transaction`. If any step raises an exception the entire transaction is rolled back and the database is left unchanged.
+
+1. **Row-level lock** — each selected `TankUnit` row is fetched with `lockForUpdate()` to prevent concurrent dispatches from claiming the same cylinder.
+2. **Status transition** — `tank.status` is set to `DESPACHADO` and `tank.dispatched_at` is stamped with the current timestamp.
+3. **Dispatch line** — a `DispatchLine` record is created linking `dispatch_id` → `tank_unit_id`. The `dispatch_lines` table enforces a unique constraint on this pair, so a tank can only appear once per dispatch and cannot be re-dispatched while its status remains `DESPACHADO`.
+4. **Inventory movement** — a `SALIDA` `InventoryMovement` record is written, capturing the tank, the originating warehouse area, the batch, the performing user's email, and the dispatch's `document_number` as the reference document.
+
+```php
+// Simplified excerpt from DispatchService::createDispatch()
+DB::transaction(function () use ($dispatchData, $tankIds, $performedBy) {
+    $dispatch = Dispatch::create($dispatchData + [
+        'performed_by_user_email' => $performedBy,
+    ]);
+
+    $tanks = TankUnit::whereIn('id', $tankIds)->lockForUpdate()->get();
+
+    foreach ($tanks as $tank) {
+        if ((int) $tank->status->value !== TankStatus::DISPONIBLE->value) {
+            throw new \RuntimeException("El tanque {$tank->serial} no está disponible.");
+        }
+
+        $tank->status = TankStatus::DESPACHADO;
+        $tank->dispatched_at = now();
+        $tank->save();
+
+        DispatchLine::create([
+            'dispatch_id'  => $dispatch->id,
+            'tank_unit_id' => $tank->id,
+        ]);
+
+        InventoryMovement::create([
+            'type'                    => MovementType::SALIDA,
+            'occurred_at'             => now(),
+            'tank_unit_id'            => $tank->id,
+            'from_area_id'            => $tank->warehouse_area_id,
+            'batch_id'                => $tank->batch_id,
+            'performed_by_user_email' => $performedBy,
+            'reference_document'      => $dispatch->document_number,
+        ]);
+    }
+
+    return $dispatch->refresh()->load(['client', 'lines.tankUnit']);
+});
+```
+
+---
+
+## document\_number auto-calculation
+
+The `document_number` on a dispatch is never typed by the user — it is derived from the **source batches** of every cylinder included in the dispatch.
+
+After all tanks have been selected, the controller collects each tank's `batch.document_number`, drops any blank values, trims whitespace, deduplicates, and joins the results with `", "`:
+
+| Scenario | Resulting `document_number` |
+|----------|-----------------------------|
+| All tanks originate from batch `42974328-HY` | `42974328-HY` |
+| Tanks come from batches `42974328-HY` and `42974329-HY` | `42974328-HY, 42974329-HY` |
+| No batch carries a `document_number` | `N/S` |
+
+For the **by-quantity** flow the placeholder `N/S` is written at creation time, and a separate `syncDocumentNumberFromDispatchTanks()` call recalculates and persists the real value once the transaction has committed and the assigned tank IDs are known.
+
+---
+
+## Dispatch record fields
+
+Each row in the `dispatches` table stores the following information:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `client_id` | `bigint` nullable | FK → `clients.id`. Set to `NULL` if the client is deleted (null-on-delete). |
+| `dispatched_at` | `datetime` | Date and time the cylinders left the warehouse. |
+| `document_number` | `string(100)` nullable | Auto-calculated from batch data (see above). |
+| `entity_type` | `tinyint` nullable | Copied from the client at the time of dispatch: 1 = Entidad, 2 = Intradomiciliario IESS, 3 = No afiliado / Apoyo. |
+| `remission_plate` | `string(50)` nullable | Vehicle licence plate from the remission note. |
+| `performed_by_user_email` | `string(150)` | Email of the authenticated user who created the dispatch. |
+| `voucher_type` | `string(50)` nullable | Type label of the supporting voucher. |
+| `voucher_number` | `string(100)` nullable | Reference number of the supporting voucher. |
+| `remission_number` | `string(100)` nullable | Remission note reference number. |
+| `notes` | `text` nullable | Free-text observations. |
+
+---
+
+## Viewing dispatches
+
+**List view** — `GET /dispatches` returns a paginated list (15 per page) of all dispatches ordered by most recent first, with the associated client eager-loaded.
+
+**Detail view** — `GET /dispatches/{dispatch}` loads the full dispatch record together with:
+
+- The linked **client** (name, document)
+- All **dispatch lines**, each carrying the tank's serial number, gas type, cylinder capacity, and originating batch reference
+
+These relationships map directly to the Eloquent eager-load chain:
+
+```php
+$dispatch->load([
+    'client',
+    'lines.tankUnit.gasType',
+    'lines.tankUnit.capacity',
+    'lines.tankUnit.batch',
+]);
+```
+
+---
+
+<Warning>
+  Only tanks whose `status` equals `DISPONIBLE` (value `1`) can be dispatched. If any selected tank has a different status at the moment the transaction executes — for example because it was reserved by a concurrent request — `DispatchService` throws a `RuntimeException` with the offending serial number, the transaction is rolled back in full, and **no** cylinders are dispatched. Always confirm tank availability before submitting the form.
+</Warning>
